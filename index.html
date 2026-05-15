@@ -402,7 +402,7 @@ function renderHm(){
 function renderHist(){
   let rows='',su=0,st=0,sU=0;
   hist.forEach((d,i)=>{
-    const ua=d.ud*U400,fi=(d.twd/ua).toFixed(1),ann=(ua*12/4000000*100).toFixed(2);
+    const ua=d.ud*UTOT,fi=(d.twd/ua).toFixed(2),ann=(d.twd*12/(4000000+8304663)*100).toFixed(2);
     su+=ua;st+=d.twd;sU+=d.ud;
     rows+=`<tr class="${i%2?'alt':''}">
       <td class="c">${d.yr||''}</td><td class="c">${d.mo}月</td>
@@ -410,7 +410,7 @@ function renderHist(){
       <td>${fi}</td><td class="${parseFloat(ann)<10?'wrn':'ok'}">${ann}%</td>
     </tr>`;
   });
-  const n=hist.length,avgAnn=(sU/n*U400*12/4000000*100).toFixed(2);
+  const n=hist.length,avgAnn=(sU/n*UTOT*12/(4000000+8304663)*100).toFixed(2);
   rows+=`<tr class="sum"><td colspan="2" class="c">平均</td><td>${(sU/n).toFixed(3)}</td><td>$${Math.round(st/n).toLocaleString('zh-TW')}</td><td>—</td><td class="${parseFloat(avgAnn)<10?'wrn':'ok'}">${avgAnn}%</td></tr>`;
   document.getElementById('hist').innerHTML=`<thead><tr><th>年度</th><th>月份</th><th>單位配息</th><th>實收台幣</th><th>匯率</th><th>年化</th></tr></thead><tbody>${rows}</tbody>`;
 }
