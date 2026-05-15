@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="財務儀表板">
+<title>財務壓力測試</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f7f7f5;--card:#ffffff;--border:#e8e6e0;
+  --text:#1a1a1a;--muted:#6b6b6b;--hint:#a0a0a0;
+  --green:#085041;--amber:#633806;--red:#712b13;
+  --blue:#185fa5;--blue-bg:#e6f1fb;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5;min-height:100vh}
+.page{max-width:480px;margin:0 auto;padding:0 0 100px}
+.hdr{padding:14px 16px 12px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:10;border-bottom:0.5px solid var(--border)}
+.hdr-left .title{font-size:16px;font-weight:500;letter-spacing:-.02em}
+.hdr-left .date{font-size:11px;color:var(--muted);margin-top:1px}
+.hdr-right{display:flex;gap:6px}
+.hdr-btn{height:32px;padding:0 12px;font-size:12px;border-radius:8px;border:0.5px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit;-webkit-appearance:none}
+.hdr-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.hdr-btn.save{background:var(--text);color:white;border-color:var(--text)}
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:white;font-size:12px;padding:9px 20px;border-radius:22px;z-index:200;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;font-family:'Noto Sans TC',sans-serif}
+.toast.show{opacity:1}
+.slbl{font-size:11px;font-weight:500;color:var(--hint);letter-spacing:.07em;text-transform:uppercase;padding:16px 16px 8px;display:flex;align-items:center;gap:5px}
+.slbl svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.banner{margin:12px 16px 4px;border-radius:14px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between}
+.banner .sub{font-size:11px;font-weight:500;letter-spacing:.04em;margin-bottom:4px;opacity:.75}
+.banner .num{font-size:32px;font-weight:500;letter-spacing:-.03em}
+.banner .right{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.banner .badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:500}
+.banner .ann{font-size:11px;opacity:.7}
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px}
+.kpi{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:14px 14px 12px}
+.kpi .lbl{font-size:11px;color:var(--muted);margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.kpi .lbl svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.kpi .val{font-size:20px;font-weight:500;letter-spacing:-.02em}
+.kpi .sub{font-size:10px;color:var(--hint);margin-top:2px}
+.bar{height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden}
+.bar-f{height:100%;border-radius:2px;transition:width .3s}
+.sliders{padding:0 16px;display:flex;flex-direction:column;gap:10px}
+.sl-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:14px 16px}
+.sl-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.sl-name{font-size:12px;color:var(--muted)}
+.sl-val{font-size:20px;font-weight:500;letter-spacing:-.02em}
+.sl-unit{font-size:11px;color:var(--hint);margin-left:2px}
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:var(--border);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;background:var(--text);border-radius:50%;cursor:pointer;border:3px solid white;box-shadow:0 0 0 1px var(--border)}
+.sl-bounds{display:flex;justify-content:space-between;font-size:10px;color:var(--hint);margin-top:5px}
+.edit-card{margin:0 16px;background:var(--card);border:0.5px solid var(--border);border-radius:12px;overflow:hidden}
+.edit-head{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid var(--border);background:var(--bg)}
+.edit-head .ttl{font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:5px}
+.edit-head .ttl svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.edit-head .tot{font-size:14px;font-weight:500}
+.erow{display:flex;align-items:center;padding:10px 14px;border-bottom:0.5px solid var(--border);gap:8px}
+.erow:last-child{border-bottom:none}
+.erow:nth-child(even){background:#fafaf8}
+.erow .nm{flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.erow .iw{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.erow .iw .cur{font-size:12px;color:var(--muted)}
+.erow input[type=number]{width:90px;font-size:13px;text-align:right;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);-webkit-appearance:none;height:34px;font-family:inherit}
+.erow input[type=number]:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
+.dbtn{background:none;border:none;padding:4px;color:var(--hint);cursor:pointer;border-radius:6px;display:flex;align-items:center}
+.dbtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.add-form{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--bg);border-top:0.5px solid var(--border)}
+.add-form input[type=text]{flex:1;font-size:12px;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:32px;min-width:0;font-family:inherit;-webkit-appearance:none}
+.add-form input[type=number]{width:80px;font-size:12px;text-align:right;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:32px;font-family:inherit;-webkit-appearance:none}
+.add-btn{background:var(--text);color:white;border:none;border-radius:8px;padding:0 12px;height:32px;font-size:12px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;font-family:inherit}
+.add-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.scene-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px}
+.sc{border-radius:12px;padding:14px;border:0.5px solid transparent}
+.sc.mid{border-width:2px;border-color:var(--blue-bg)}
+.sc .tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;display:inline-block;margin-bottom:6px}
+.sc .nm{font-size:12px;font-weight:500;margin-bottom:3px}
+.sc .inf{font-size:10px;opacity:.7;margin-bottom:6px;line-height:1.4}
+.sc .net{font-size:18px;font-weight:500;margin-bottom:4px}
+.pill{font-size:10px;padding:2px 8px;border-radius:20px;display:inline-block;font-weight:500}
+.hm-outer{padding:0 16px;overflow-x:auto}
+.hm-scroll{min-width:360px}
+table.hm{width:100%;border-collapse:collapse;table-layout:fixed}
+table.hm th{font-size:9px;font-weight:500;color:var(--muted);padding:5px 3px;background:var(--bg);border:0.5px solid var(--border);text-align:center}
+table.hm th.hhi{background:var(--blue-bg);color:var(--blue)}
+table.hm td{padding:5px 3px;text-align:center;border:0.5px solid var(--border);font-size:10px;font-weight:500}
+table.hm td.rhi{background:var(--blue-bg);color:var(--blue)}
+table.hm td.cur{outline:2px solid var(--blue);outline-offset:-2px}
+.hist-outer{padding:0 16px;overflow-x:auto}
+.hist-scroll{min-width:420px}
+table.ht{width:100%;border-collapse:collapse}
+table.ht th{font-size:10px;font-weight:500;color:var(--muted);background:var(--bg);padding:7px 8px;border:0.5px solid var(--border);text-align:center}
+table.ht td{padding:7px 8px;border:0.5px solid var(--border);text-align:right;font-size:12px}
+table.ht td.c{text-align:center}
+table.ht tr.alt td{background:#fafaf8}
+table.ht tr.sum td{background:var(--bg);font-weight:500}
+.ok{color:var(--green)}.wrn{color:var(--amber)}
+.hist-add{margin:8px 16px 0;background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px 14px}
+.hist-add .ttl{font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:500}
+.hist-add .fields{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.hist-add select{font-size:12px;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:34px;font-family:inherit;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6b6b' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:26px}
+.hist-add select#n-yr{width:90px}
+.hist-add select#n-mo{width:78px}
+.hist-add input[type=number]{font-size:12px;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:34px;font-family:inherit;-webkit-appearance:none;text-align:right}
+.hist-add #n-ud{width:112px}
+.hist-add #n-twd{width:100px}
+.footnote{font-size:11px;color:var(--hint);padding:16px 16px 0;line-height:1.8}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-bg.open{opacity:1;pointer-events:all}
+.modal{background:white;border-radius:16px 16px 0 0;padding:24px 20px 44px;width:100%;max-width:480px}
+.modal h3{font-size:16px;font-weight:500;margin-bottom:8px}
+.modal p{font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6}
+.modal-btns{display:flex;flex-direction:column;gap:8px}
+.modal-btns button{width:100%;height:46px;border-radius:10px;font-size:14px;border:none;cursor:pointer;font-family:inherit;font-weight:500}
+.btn-confirm{background:#cc3d1a;color:white}
+.btn-cancel{background:var(--bg);color:var(--text)}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="hdr">
+  <div class="hdr-left">
+    <div class="title">財務壓力測試</div>
+    <div class="date" id="hdr-date"></div>
+  </div>
+  <div class="hdr-right">
+    <button class="hdr-btn" onclick="showReset()">
+      <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>重置
+    </button>
+    <button class="hdr-btn save" onclick="saveAll(true)">
+      <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>儲存
+    </button>
+  </div>
+</div>
+
+<div class="banner" id="banner">
+  <div>
+    <div class="sub">月淨結餘</div>
+    <div class="num" id="b-net"></div>
+  </div>
+  <div class="right">
+    <span class="badge" id="b-badge"></span>
+    <span class="ann" id="b-ann"></span>
+  </div>
+</div>
+
+<div class="slbl"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>收支總覽</div>
+<div class="kpi-grid">
+  <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>基金配息</div><div class="val" id="k-fund">$0</div><div class="sub">400萬＋830萬</div></div>
+  <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>月收入合計</div><div class="val" id="k-inc">$0</div><div class="sub">所有收入</div></div>
+  <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>月支出合計</div><div class="val" id="k-cost">$0</div><div class="sub">所有支出</div></div>
+  <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>收入/支出比</div><div class="val" id="k-ratio">0%</div><div class="bar"><div class="bar-f" id="k-bar"></div></div></div>
+</div>
+
+<div class="slbl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>控制參數</div>
+<div class="sliders">
+  <div class="sl-card">
+    <div class="sl-head"><span class="sl-name">匯率 (USD/TWD)</span><span><span class="sl-val" id="fx-v">31.50</span><span class="sl-unit">TWD</span></span></div>
+    <input type="range" id="fx-sl" min="28" max="36" step="0.1" value="31.5">
+    <div class="sl-bounds"><span>28.0</span><span>31.5 基準</span><span>36.0</span></div>
+  </div>
+  <div class="sl-card">
+    <div class="sl-head"><span class="sl-name">每單位配息 (USD)</span><span><span class="sl-val" id="div-v">0.672</span><span class="sl-unit">USD/unit</span></span></div>
+    <input type="range" id="div-sl" min="0.50" max="0.85" step="0.001" value="0.672">
+    <div class="sl-bounds"><span>0.500</span><span>0.672 最新</span><span>0.850</span></div>
+  </div>
+</div>
+
+<div class="slbl"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>月收入明細</div>
+<div class="edit-card">
+  <div class="edit-head"><div class="ttl"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>收入項目</div><span class="tot" id="inc-tot">$0</span></div>
+  <div id="inc-rows"></div>
+  <div class="add-form">
+    <input type="text" id="inc-name" placeholder="項目名稱">
+    <input type="number" id="inc-amt" placeholder="金額" min="0" step="1">
+    <button class="add-btn" onclick="addItem('inc')"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
+  </div>
+</div>
+
+<div class="slbl"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>月支出明細</div>
+<div class="edit-card">
+  <div class="edit-head"><div class="ttl"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>支出項目</div><span class="tot" id="cost-tot">$0</span></div>
+  <div id="cost-rows"></div>
+  <div class="add-form">
+    <input type="text" id="cost-name" placeholder="項目名稱">
+    <input type="number" id="cost-amt" placeholder="金額" min="0" step="1">
+    <button class="add-btn" onclick="addItem('cost')"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
+  </div>
+</div>
+
+<div class="slbl"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>五種情境試算</div>
+<div class="scene-grid" id="scenes"></div>
+
+<div class="slbl"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>熱力矩陣</div>
+<div class="hm-outer"><div class="hm-scroll"><table class="hm" id="hm"></table></div></div>
+
+<div class="slbl"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>歷史配息記錄</div>
+<div class="hist-outer"><div class="hist-scroll"><table class="ht" id="hist"></table></div></div>
+<div class="hist-add">
+  <div class="ttl">新增下一期配息</div>
+  <div class="fields">
+    <select id="n-yr"><option>115年</option><option>116年</option></select>
+    <select id="n-mo"><option value="1">1月</option><option value="2">2月</option><option value="3">3月</option><option value="4">4月</option><option value="5">5月</option><option value="6">6月</option><option value="7">7月</option><option value="8">8月</option><option value="9">9月</option><option value="10">10月</option><option value="11">11月</option><option value="12">12月</option></select>
+    <input type="number" id="n-ud" placeholder="每單位USD" step="0.001" min="0">
+    <input type="number" id="n-twd" placeholder="實收台幣" step="1" min="0">
+    <button class="add-btn" onclick="addHistRow()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
+  </div>
+</div>
+
+<div class="footnote">
+  400萬部位 1,723.533 units ／ 830萬部位 3,498.549 units ／ 合計 5,222.082 units<br>
+  點選金額可直接修改 ／ 修改後自動儲存 ／ 右上角「儲存」可手動確認存檔
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-bg" id="modal" onclick="if(event.target===this)hideReset()">
+  <div class="modal">
+    <h3>重置所有資料</h3>
+    <p>將清除所有已儲存的修改，恢復為預設值。此動作無法復原。</p>
+    <div class="modal-btns">
+      <button class="btn-confirm" onclick="doReset()">確認重置</button>
+      <button class="btn-cancel" onclick="hideReset()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const UTOT=5222.082,U400=1723.533,KEY='fin_v1';
+const tw=v=>Math.round(v).toLocaleString('zh-TW');
+let FX=31.5,UD=0.672,IID=100;
+let incItems,costItems,hist;
+
+const DEF_INC=[
+  {id:1,name:'月薪 + 加班費',amt:68000,auto:false},
+  {id:2,name:'基金配息（自動）',amt:0,auto:true},
+];
+const DEF_COST=[
+  {id:10,name:'原房貸',amt:32400},{id:11,name:'理財型房貸',amt:35040},
+  {id:12,name:'房貸壽險',amt:2307},{id:13,name:'信貸',amt:5718},
+  {id:14,name:'孝親費',amt:10000},{id:15,name:'兩孩課輔費',amt:20000},
+  {id:16,name:'管理費',amt:4100},{id:17,name:'個人醫療險',amt:3300},
+  {id:18,name:'小孩醫療險',amt:4167},{id:19,name:'個人生活費',amt:10000},
+  {id:20,name:'美股定投',amt:15000},{id:21,name:'信用卡費',amt:18962},
+];
+const DEF_HIST=[
+  {yr:'114年',mo:'5', ud:0.666,twd:34561, units:1723.533,cost:4000000},
+  {yr:'',    mo:'6',  ud:0.677,twd:34518, units:1723.533,cost:4000000},
+  {yr:'',    mo:'7',  ud:0.683,twd:34453, units:1723.533,cost:4000000},
+  {yr:'',    mo:'8',  ud:0.685,twd:35410, units:1723.533,cost:4000000},
+  {yr:'',    mo:'9',  ud:0.688,twd:35642, units:1723.533,cost:4000000},
+  {yr:'',    mo:'10', ud:0.691,twd:36494, units:1723.533,cost:4000000},
+  {yr:'',    mo:'11', ud:0.684,twd:36749, units:1723.533,cost:4000000},
+  {yr:'',    mo:'12', ud:0.687,twd:37277, units:1723.533,cost:4000000},
+  {yr:'115年',mo:'1', ud:0.691,twd:37572, units:1723.533,cost:4000000},
+  {yr:'',    mo:'2',  ud:0.693,twd:37513, units:1723.533,cost:4000000},
+  {yr:'',    mo:'3',  ud:0.680,twd:37407, units:1723.533,cost:4000000},
+  {yr:'',    mo:'4',  ud:0.672,twd:36602, units:1723.533,cost:4000000},
+  {yr:'115年',mo:'5', ud:0.696,twd:114407,units:5222.082,cost:12304663},
+];
+
+function clone(x){return JSON.parse(JSON.stringify(x));}
+function resetDef(){FX=31.5;UD=0.672;IID=100;incItems=clone(DEF_INC);costItems=clone(DEF_COST);hist=clone(DEF_HIST);}
+
+function loadData(){
+  try{
+    const r=localStorage.getItem(KEY);
+    if(r){const d=JSON.parse(r);FX=d.fx||31.5;UD=d.ud||0.672;incItems=d.inc||clone(DEF_INC);costItems=d.cost||clone(DEF_COST);hist=d.hist||clone(DEF_HIST);IID=d.iid||100;return true;}
+  }catch(e){}
+  resetDef();return false;
+}
+
+function saveAll(manual){
+  try{
+    localStorage.setItem(KEY,JSON.stringify({fx:FX,ud:UD,inc:incItems,cost:costItems,hist:hist,iid:IID}));
+    if(manual)toast('已儲存');
+  }catch(e){toast('儲存失敗');}
+}
+
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.classList.add('show');
+  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2200);
+}
+
+function showReset(){document.getElementById('modal').classList.add('open');}
+function hideReset(){document.getElementById('modal').classList.remove('open');}
+function doReset(){
+  hideReset();localStorage.removeItem(KEY);resetDef();
+  document.getElementById('fx-sl').value=FX;document.getElementById('fx-v').textContent=FX.toFixed(2);
+  document.getElementById('div-sl').value=UD;document.getElementById('div-v').textContent=UD.toFixed(3);
+  renderAll();toast('已重置為預設值');
+}
+
+const nc=n=>n>=0?{bg:'#e1f5ee',tc:'#085041',lbl:'安全'}:n>=-20000?{bg:'#faeeda',tc:'#633806',lbl:'警戒'}:{bg:'#faece7',tc:'#712b13',lbl:'危險'};
+const fi=()=>UD*UTOT*FX;
+const tInc=()=>incItems.reduce((s,x)=>s+(x.auto?fi():x.amt),0);
+const tCost=()=>costItems.reduce((s,x)=>s+x.amt,0);
+
+function renderBanner(){
+  const n=tInc()-tCost(),c=nc(n);
+  const el=document.getElementById('banner');el.style.background=c.bg;
+  const ne=document.getElementById('b-net');ne.style.color=c.tc;ne.textContent=(n>=0?'+ ':'− ')+'$'+tw(Math.abs(n));
+  const ba=document.getElementById('b-badge');ba.textContent=c.lbl;ba.style.cssText=`background:white;color:${c.tc}`;
+  const an=document.getElementById('b-ann');an.style.color=c.tc;an.textContent='年化 '+(n>=0?'+ ':'− ')+'$'+tw(Math.abs(n*12));
+}
+
+function renderKpi(){
+  const f=fi(),ti=tInc(),tc=tCost();
+  document.getElementById('k-fund').textContent='$'+tw(f);
+  document.getElementById('k-inc').textContent='$'+tw(ti);
+  document.getElementById('k-cost').textContent='$'+tw(tc);
+  const r=Math.min(130,Math.round(ti/tc*100));
+  document.getElementById('k-ratio').textContent=r+'%';
+  const b=document.getElementById('k-bar');
+  b.style.width=Math.min(100,r)+'%';
+  b.style.background=r>=100?'#1d9e75':r>=80?'#ba7517':'#d85a30';
+}
+
+const TRASH=`<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>`;
+
+function renderRows(){
+  const f=Math.round(fi());
+  document.getElementById('inc-rows').innerHTML=incItems.map((it,i)=>`
+    <div class="erow${i%2?' alt':''}">
+      <span class="nm">${it.name}</span>
+      <div class="iw"><span class="cur">$</span>
+        ${it.auto
+          ?`<input type="number" value="${f}" disabled style="width:90px;font-size:13px;text-align:right;border:0.5px solid #e8e6e0;border-radius:8px;padding:5px 8px;height:34px;background:#f7f7f5;color:#a0a0a0">`
+          :`<input type="number" value="${it.amt}" min="0" step="1" onchange="upd('inc',${it.id},this.value)">`
+        }
+        ${!it.auto?`<button class="dbtn" onclick="del('inc',${it.id})" aria-label="刪除">${TRASH}</button>`:'<span style="width:24px"></span>'}
+      </div>
+    </div>`).join('');
+  document.getElementById('inc-tot').textContent='$'+tw(tInc());
+  document.getElementById('cost-rows').innerHTML=costItems.map((it,i)=>`
+    <div class="erow${i%2?' alt':''}">
+      <span class="nm">${it.name}</span>
+      <div class="iw"><span class="cur">$</span>
+        <input type="number" value="${it.amt}" min="0" step="1" onchange="upd('cost',${it.id},this.value)">
+        <button class="dbtn" onclick="del('cost',${it.id})" aria-label="刪除">${TRASH}</button>
+      </div>
+    </div>`).join('');
+  document.getElementById('cost-tot').textContent='$'+tw(tCost());
+}
+
+function upd(t,id,v){
+  const a=t==='inc'?incItems:costItems,it=a.find(x=>x.id===id);
+  if(it)it.amt=parseInt(v)||0;
+  renderAll();debSave();
+}
+function del(t,id){
+  if(t==='inc')incItems=incItems.filter(x=>x.id!==id);
+  else costItems=costItems.filter(x=>x.id!==id);
+  renderAll();debSave();
+}
+function addItem(t){
+  const n=document.getElementById(t+'-name'),a=document.getElementById(t+'-amt');
+  const name=n.value.trim(),amt=parseInt(a.value)||0;
+  if(!name||amt<=0)return;
+  if(t==='inc')incItems.push({id:IID++,name,amt,auto:false});
+  else costItems.push({id:IID++,name,amt});
+  n.value='';a.value='';renderAll();debSave();
+}
+
+function renderScenes(){
+  const tc=tCost(),nAuto=incItems.filter(x=>!x.auto).reduce((s,x)=>s+x.amt,0);
+  document.getElementById('scenes').innerHTML=[
+    {name:'極端悲觀',m:0.60,fd:-2.5},
+    {name:'悲觀',m:0.75,fd:-1.0},
+    {name:'基準',m:1.00,fd:0,mid:true},
+    {name:'樂觀',m:1.15,fd:+1.0},
+    {name:'極端樂觀',m:1.30,fd:+2.5},
+  ].map(d=>{
+    const n=nAuto+UD*d.m*UTOT*(FX+d.fd)-tc,c=nc(n);
+    return`<div class="sc${d.mid?' mid':''}" style="background:${c.bg}">
+      <div class="tag" style="background:${c.bg};color:${c.tc};border:0.5px solid ${c.tc}50">×${d.m.toFixed(2)}</div>
+      <div class="nm" style="color:${c.tc}">${d.name}</div>
+      <div class="inf" style="color:${c.tc}">配息 ${(UD*d.m).toFixed(3)}<br>匯率 ${(FX+d.fd).toFixed(1)}</div>
+      <div class="net" style="color:${c.tc}">${n>=0?'+ ':'− '}$${tw(Math.abs(n))}</div>
+      <span class="pill" style="background:white;color:${c.tc}">${c.lbl}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderHm(){
+  const tc=tCost(),nA=incItems.filter(x=>!x.auto).reduce((s,x)=>s+x.amt,0);
+  const uds=[0.60,0.65,0.672,0.70,0.75,0.80],fxs=[29.5,30.5,31.5,32.5,33.5];
+  let h=`<thead><tr><th style="width:38px">↓/→</th>`;
+  uds.forEach(u=>{const hi=Math.abs(u-UD)<0.002;h+=`<th class="${hi?'hhi':''}">${u.toFixed(3)}</th>`;});
+  h+=`</tr></thead><tbody>`;
+  fxs.forEach(fx=>{
+    const rhi=Math.abs(fx-FX)<0.06;
+    h+=`<tr><td class="${rhi?'rhi':''}" style="font-weight:500">${fx.toFixed(1)}</td>`;
+    uds.forEach(ud=>{
+      const n=nA+ud*UTOT*fx-tc,c=nc(n),cur=Math.abs(ud-UD)<0.002&&rhi;
+      h+=`<td class="${cur?'cur':''}" style="background:${c.bg};color:${c.tc}">${tw(n)}</td>`;
+    });
+    h+=`</tr>`;
+  });
+  document.getElementById('hm').innerHTML=h+`</tbody>`;
+}
+
+function renderHist(){
+  let rows='',su=0,st=0,sU=0;
+  hist.forEach((d,i)=>{
+    const units=d.units||UTOT,ua=d.ud*units,fi=(d.twd/ua).toFixed(2),cost=d.cost||(4000000+8304663),ann=(d.twd*12/cost*100).toFixed(2);
+    su+=ua;st+=d.twd;sU+=d.ud;
+    rows+=`<tr class="${i%2?'alt':''}">
+      <td class="c">${d.yr||''}</td><td class="c">${d.mo}月</td>
+      <td>${d.ud.toFixed(3)}</td><td>$${d.twd.toLocaleString('zh-TW')}</td>
+      <td>${fi}</td><td class="${parseFloat(ann)<10?'wrn':'ok'}">${ann}%</td>
+    </tr>`;
+  });
+  const n=hist.length,avgAnn=(hist.reduce((s,d)=>s+(d.twd*12/(d.cost||(4000000+8304663))*100),0)/n).toFixed(2);
+  rows+=`<tr class="sum"><td colspan="2" class="c">平均</td><td>${(sU/n).toFixed(3)}</td><td>$${Math.round(st/n).toLocaleString('zh-TW')}</td><td>—</td><td class="${parseFloat(avgAnn)<10?'wrn':'ok'}">${avgAnn}%</td></tr>`;
+  document.getElementById('hist').innerHTML=`<thead><tr><th>年度</th><th>月份</th><th>單位配息</th><th>實收台幣</th><th>匯率</th><th>年化</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+function addHistRow(){
+  const yr=document.getElementById('n-yr').value,mo=document.getElementById('n-mo').value;
+  const ud=parseFloat(document.getElementById('n-ud').value),twd=parseInt(document.getElementById('n-twd').value);
+  if(isNaN(ud)||isNaN(twd)||ud<=0||twd<=0)return;
+  hist.push({yr,mo,ud,twd,units:UTOT,cost:12304663});
+  UD=ud;
+  document.getElementById('div-sl').value=ud;document.getElementById('div-v').textContent=ud.toFixed(3);
+  document.getElementById('n-ud').value='';document.getElementById('n-twd').value='';
+  renderAll();saveAll(false);toast('配息記錄已新增並儲存');
+}
+
+let _st=null;
+function debSave(){clearTimeout(_st);_st=setTimeout(()=>saveAll(false),1200);}
+function renderAll(){renderBanner();renderKpi();renderRows();renderScenes();renderHm();renderHist();}
+
+document.getElementById('fx-sl').addEventListener('input',function(){
+  FX=parseFloat(this.value);document.getElementById('fx-v').textContent=FX.toFixed(2);renderAll();debSave();
+});
+document.getElementById('div-sl').addEventListener('input',function(){
+  UD=parseFloat(this.value);document.getElementById('div-v').textContent=UD.toFixed(3);renderAll();debSave();
+});
+
+const loaded=loadData();
+document.getElementById('fx-sl').value=FX;document.getElementById('fx-v').textContent=FX.toFixed(2);
+document.getElementById('div-sl').value=UD;document.getElementById('div-v').textContent=UD.toFixed(3);
+const dd=new Date();
+document.getElementById('hdr-date').textContent=`${dd.getFullYear()-1911}年${dd.getMonth()+1}月${dd.getDate()}日`;
+renderAll();
+if(loaded)toast('已讀取上次儲存的資料');
+</script>
+</body>
+</html>
