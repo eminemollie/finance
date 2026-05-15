@@ -249,12 +249,19 @@ const DEF_COST=[
   {id:20,name:'美股定投',amt:15000},{id:21,name:'信用卡費',amt:18962},
 ];
 const DEF_HIST=[
-  {yr:'114年',mo:'5',ud:0.666,twd:34561},{yr:'',mo:'6',ud:0.677,twd:34518},
-  {yr:'',mo:'7',ud:0.683,twd:34453},{yr:'',mo:'8',ud:0.685,twd:35410},
-  {yr:'',mo:'9',ud:0.688,twd:35642},{yr:'',mo:'10',ud:0.691,twd:36494},
-  {yr:'',mo:'11',ud:0.684,twd:36749},{yr:'',mo:'12',ud:0.687,twd:37277},
-  {yr:'115年',mo:'1',ud:0.691,twd:37572},{yr:'',mo:'2',ud:0.693,twd:37513},
-  {yr:'',mo:'3',ud:0.680,twd:37407},{yr:'',mo:'4',ud:0.672,twd:36602},
+  {yr:'114年',mo:'5', ud:0.666,twd:34561, units:1723.533},
+  {yr:'',    mo:'6',  ud:0.677,twd:34518, units:1723.533},
+  {yr:'',    mo:'7',  ud:0.683,twd:34453, units:1723.533},
+  {yr:'',    mo:'8',  ud:0.685,twd:35410, units:1723.533},
+  {yr:'',    mo:'9',  ud:0.688,twd:35642, units:1723.533},
+  {yr:'',    mo:'10', ud:0.691,twd:36494, units:1723.533},
+  {yr:'',    mo:'11', ud:0.684,twd:36749, units:1723.533},
+  {yr:'',    mo:'12', ud:0.687,twd:37277, units:1723.533},
+  {yr:'115年',mo:'1', ud:0.691,twd:37572, units:1723.533},
+  {yr:'',    mo:'2',  ud:0.693,twd:37513, units:1723.533},
+  {yr:'',    mo:'3',  ud:0.680,twd:37407, units:1723.533},
+  {yr:'',    mo:'4',  ud:0.672,twd:36602, units:1723.533},
+  {yr:'115年',mo:'5', ud:0.696,twd:114407,units:5222.082},
 ];
 
 function clone(x){return JSON.parse(JSON.stringify(x));}
@@ -402,7 +409,7 @@ function renderHm(){
 function renderHist(){
   let rows='',su=0,st=0,sU=0;
   hist.forEach((d,i)=>{
-    const ua=d.ud*UTOT,fi=(d.twd/ua).toFixed(2),ann=(d.twd*12/(4000000+8304663)*100).toFixed(2);
+    const units=d.units||UTOT,ua=d.ud*units,fi=(d.twd/ua).toFixed(2),totalCost=units===1723.533?4000000:(4000000+8304663),ann=(d.twd*12/totalCost*100).toFixed(2);
     su+=ua;st+=d.twd;sU+=d.ud;
     rows+=`<tr class="${i%2?'alt':''}">
       <td class="c">${d.yr||''}</td><td class="c">${d.mo}月</td>
@@ -410,7 +417,7 @@ function renderHist(){
       <td>${fi}</td><td class="${parseFloat(ann)<10?'wrn':'ok'}">${ann}%</td>
     </tr>`;
   });
-  const n=hist.length,avgAnn=(sU/n*UTOT*12/(4000000+8304663)*100).toFixed(2);
+  const n=hist.length,avgTwd=st/n,avgCost=(4000000+8304663),avgAnn=(avgTwd*12/avgCost*100).toFixed(2);
   rows+=`<tr class="sum"><td colspan="2" class="c">平均</td><td>${(sU/n).toFixed(3)}</td><td>$${Math.round(st/n).toLocaleString('zh-TW')}</td><td>—</td><td class="${parseFloat(avgAnn)<10?'wrn':'ok'}">${avgAnn}%</td></tr>`;
   document.getElementById('hist').innerHTML=`<thead><tr><th>年度</th><th>月份</th><th>單位配息</th><th>實收台幣</th><th>匯率</th><th>年化</th></tr></thead><tbody>${rows}</tbody>`;
 }
@@ -419,7 +426,7 @@ function addHistRow(){
   const yr=document.getElementById('n-yr').value,mo=document.getElementById('n-mo').value;
   const ud=parseFloat(document.getElementById('n-ud').value),twd=parseInt(document.getElementById('n-twd').value);
   if(isNaN(ud)||isNaN(twd)||ud<=0||twd<=0)return;
-  hist.push({yr,mo,ud,twd});
+  hist.push({yr,mo,ud,twd,units:UTOT});
   UD=ud;
   document.getElementById('div-sl').value=ud;document.getElementById('div-v').textContent=ud.toFixed(3);
   document.getElementById('n-ud').value='';document.getElementById('n-twd').value='';
