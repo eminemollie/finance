@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="財務儀表板">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f7f7f5">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%231a1a1a'/%3E%3Ctext x='90' y='115' font-size='90' text-anchor='middle' fill='white' font-family='-apple-system,sans-serif'%3E%24%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%231a1a1a'/%3E%3Ctext x='50' y='65' font-size='50' text-anchor='middle' fill='white' font-family='-apple-system,sans-serif'%3E%24%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.json">
+<title>財務壓力測試</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f7f7f5;--card:#ffffff;--border:#e8e6e0;
+  --text:#1a1a1a;--muted:#6b6b6b;--hint:#a0a0a0;
+  --green:#085041;--amber:#633806;--red:#712b13;
+  --blue:#185fa5;--blue-bg:#e6f1fb;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5;min-height:100vh;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:text;user-select:text}
+.page{max-width:480px;margin:0 auto;padding:0 0 100px}
+.hdr{padding:calc(14px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:10;border-bottom:0.5px solid var(--border)}
+.hdr-left .title{font-size:16px;font-weight:500;letter-spacing:-.02em}
+.hdr-left .date{font-size:11px;color:var(--muted);margin-top:1px}
+.hdr-right{display:flex;gap:6px}
+.hdr-btn{height:32px;padding:0 12px;font-size:12px;border-radius:8px;border:0.5px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit;-webkit-appearance:none}
+.hdr-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.hdr-btn.save{background:var(--text);color:white;border-color:var(--text)}
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:white;font-size:12px;padding:9px 20px;border-radius:22px;z-index:200;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;font-family:'Noto Sans TC',sans-serif}
+.toast.show{opacity:1}
+.tabs{display:flex;gap:4px;padding:10px 16px 0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tab{flex-shrink:0;padding:7px 14px;font-size:12px;font-weight:500;border-radius:20px;border:0.5px solid var(--border);background:var(--card);color:var(--muted);white-space:nowrap;cursor:pointer;font-family:inherit;-webkit-appearance:none}
+.tab.active{background:var(--text);color:white;border-color:var(--text)}
+.tabpanel{display:none}
+.tabpanel.active{display:block}
+.slbl{font-size:11px;font-weight:500;color:var(--hint);letter-spacing:.07em;text-transform:uppercase;padding:16px 16px 8px;display:flex;align-items:center;gap:5px}
+.slbl svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.banner{margin:12px 16px 4px;border-radius:14px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between}
+.banner .sub{font-size:11px;font-weight:500;letter-spacing:.04em;margin-bottom:4px;opacity:.75}
+.banner .num{font-size:30px;font-weight:500;letter-spacing:-.03em}
+.banner .right{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.banner .badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:500}
+.banner .ann{font-size:11px;opacity:.7}
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px}
+.kpi{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:14px 14px 12px}
+.kpi .lbl{font-size:11px;color:var(--muted);margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.kpi .lbl svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.kpi .val{font-size:19px;font-weight:500;letter-spacing:-.02em}
+.kpi .sub{font-size:10px;color:var(--hint);margin-top:2px}
+.bar{height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden}
+.bar-f{height:100%;border-radius:2px;transition:width .3s}
+.sliders{padding:0 16px;display:flex;flex-direction:column;gap:10px}
+.sl-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:14px 16px}
+.sl-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.sl-name{font-size:12px;color:var(--muted)}
+.sl-right{display:flex;align-items:baseline;gap:3px}
+.sl-right input[type=text]{width:80px;font-size:20px;font-weight:500;letter-spacing:-.02em;border:none;border-bottom:1.5px solid var(--border);padding:0 2px;background:transparent;color:var(--text);text-align:right;font-family:inherit}
+.sl-unit{font-size:11px;color:var(--hint)}
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:var(--border);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;background:var(--text);border-radius:50%;cursor:pointer;border:3px solid white;box-shadow:0 0 0 1px var(--border)}
+.sl-bounds{display:flex;justify-content:space-between;font-size:10px;color:var(--hint);margin-top:5px}
+.edit-card{margin:0 16px;background:var(--card);border:0.5px solid var(--border);border-radius:12px;overflow:hidden}
+.edit-head{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid var(--border);background:var(--bg)}
+.edit-head .ttl{font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:5px}
+.edit-head .ttl svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.edit-head .tot{font-size:14px;font-weight:500}
+.erow{display:flex;align-items:center;padding:10px 14px;border-bottom:0.5px solid var(--border);gap:8px}
+.erow:last-child{border-bottom:none}
+.erow:nth-child(even){background:#fafaf8}
+.erow .nm{flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.erow .sub{font-size:10px;color:var(--hint);display:block;margin-top:1px}
+.erow .iw{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.erow .iw .cur{font-size:12px;color:var(--muted)}
+.erow input[type=number]{width:90px;font-size:13px;text-align:right;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);-webkit-appearance:none;height:34px;font-family:inherit}
+.erow input[type=number]:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
+.erow .autoval{font-size:13px;font-weight:500;color:var(--red)}
+.erow .autoval.pos{color:var(--green)}
+.dbtn{background:none;border:none;padding:4px;color:var(--hint);cursor:pointer;border-radius:6px;display:flex;align-items:center}
+.dbtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.add-form{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--bg);border-top:0.5px solid var(--border)}
+.add-form input[type=text]{flex:1;font-size:12px;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:32px;min-width:0;font-family:inherit;-webkit-appearance:none}
+.add-form input[type=number]{width:80px;font-size:12px;text-align:right;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:32px;font-family:inherit;-webkit-appearance:none}
+.add-btn{background:var(--text);color:white;border:none;border-radius:8px;padding:0 12px;height:32px;font-size:12px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;font-family:inherit}
+.add-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.scene-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px}
+.sc{border-radius:12px;padding:14px;border:0.5px solid transparent}
+.sc.mid{border-width:2px;border-color:var(--blue-bg)}
+.sc .tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;display:inline-block;margin-bottom:6px}
+.sc .nm{font-size:12px;font-weight:500;margin-bottom:3px}
+.sc .inf{font-size:10px;opacity:.7;margin-bottom:6px;line-height:1.4}
+.sc .net{font-size:17px;font-weight:500;margin-bottom:4px}
+.pill{font-size:10px;padding:2px 8px;border-radius:20px;display:inline-block;font-weight:500}
+.hist-tbl{width:100%;border-collapse:collapse;font-size:12px;margin:0 16px;width:calc(100% - 32px)}
+.hist-outer{padding:0 16px;overflow-x:auto}
+.hist-scroll{min-width:420px}
+table.ht{width:100%;border-collapse:collapse}
+table.ht th{font-size:10px;font-weight:500;color:var(--muted);background:var(--bg);padding:7px 8px;border:0.5px solid var(--border);text-align:center}
+table.ht td{padding:7px 8px;border:0.5px solid var(--border);text-align:right;font-size:12px}
+table.ht td.c{text-align:center}
+table.ht tr.alt td{background:#fafaf8}
+table.ht tr.sum td{background:var(--bg);font-weight:500}
+.wrn{color:var(--amber)}.ok{color:var(--green)}
+.hist-add{margin:8px 16px 0;background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:12px 14px}
+.hist-add .ttl{font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:500}
+.hist-add .fields{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.hist-add select{font-size:12px;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:34px;font-family:inherit;-webkit-appearance:none}
+.hist-add select#n-yr{width:90px}
+.hist-add select#n-mo{width:78px}
+.hist-add input[type=number]{font-size:12px;border:0.5px solid var(--border);border-radius:8px;padding:5px 8px;background:white;color:var(--text);height:34px;font-family:inherit;-webkit-appearance:none;text-align:right}
+.hist-add #n-ud{width:112px}
+.hist-add #n-twd{width:100px}
+.footnote{font-size:11px;color:var(--hint);padding:16px 16px 0;line-height:1.8}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-bg.open{opacity:1;pointer-events:all}
+.modal{background:white;border-radius:16px 16px 0 0;padding:24px 20px 44px;width:100%;max-width:480px}
+.modal h3{font-size:16px;font-weight:500;margin-bottom:8px}
+.modal p{font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6}
+.modal-btns{display:flex;flex-direction:column;gap:8px}
+.modal-btns button{width:100%;height:46px;border-radius:10px;font-size:14px;border:none;cursor:pointer;font-family:inherit;font-weight:500}
+.btn-confirm{background:#cc3d1a;color:white}
+.btn-cancel{background:var(--bg);color:var(--text)}
+.al-row{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:0.5px solid var(--border)}
+.al-row:last-child{border-bottom:none}
+.al-row:nth-child(even){background:#fafaf8}
+.al-row .al-nm{font-size:12px;color:var(--text);flex:1;min-width:0}
+.al-row .al-sub{font-size:10px;color:var(--hint);display:block;margin-top:1px}
+.warn-chip{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;font-size:12px;font-weight:500;margin:0 16px 6px}
+.warn-chip svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.warn-danger{background:#faece7;color:#712b13}
+.warn-amber{background:#faeeda;color:#633806}
+.lock-screen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;padding-top:calc(24px + env(safe-area-inset-top));padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+.lock-icon{width:56px;height:56px;border-radius:16px;background:var(--text);display:flex;align-items:center;justify-content:center;margin-bottom:24px}
+.lock-icon svg{width:26px;height:26px;stroke:white;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.lock-title{font-size:17px;font-weight:500;margin-bottom:6px}
+.lock-sub{font-size:13px;color:var(--muted);margin-bottom:28px;text-align:center}
+.lock-form{width:100%;max-width:280px;display:flex;flex-direction:column;gap:12px}
+.lock-form input[type=password]{width:100%;height:48px;border:0.5px solid var(--border);border-radius:12px;padding:0 16px;font-size:16px;background:var(--card);color:var(--text);text-align:center;letter-spacing:.05em;font-family:inherit;-webkit-appearance:none}
+.lock-form input[type=password]:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
+.lock-form input[type=password].shake{animation:shake .4s}
+@keyframes shake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}30%,50%,70%{transform:translateX(-8px)}40%,60%{transform:translateX(8px)}}
+.lock-btn{width:100%;height:48px;border:none;border-radius:12px;background:var(--text);color:white;font-size:15px;font-weight:500;cursor:pointer;font-family:inherit;-webkit-appearance:none}
+.lock-btn:active{opacity:.8}
+.lock-err{font-size:12px;color:#cc3d1a;text-align:center;min-height:16px}
+.page{display:none}
+.page.unlocked{display:block}
+</style>
+</head>
+<body>
+
+<div class="lock-screen" id="lock-screen">
+  <div class="lock-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+  <div class="lock-title">財務儀表板</div>
+  <div class="lock-sub">請輸入密碼以繼續</div>
+  <form class="lock-form" id="lock-form" onsubmit="return checkPassword(event)">
+    <input type="password" id="lock-input" inputmode="text" autocomplete="off" placeholder="密碼" autofocus>
+    <div class="lock-err" id="lock-err"></div>
+    <button type="submit" class="lock-btn">解鎖</button>
+  </form>
+</div>
+
+<div class="page">
+
+<div class="hdr">
+  <div class="hdr-left">
+    <div class="title">財務壓力測試</div>
+    <div class="date" id="hdr-date"></div>
+  </div>
+  <div class="hdr-right">
+    <button class="hdr-btn" onclick="showReset()">
+      <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>重置
+    </button>
+    <button class="hdr-btn save" onclick="saveAll(true)">
+      <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>儲存
+    </button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="net" onclick="switchTab('net')">淨值總覽</button>
+  <button class="tab" data-tab="cash" onclick="switchTab('cash')">月收支</button>
+  <button class="tab" data-tab="scene" onclick="switchTab('scene')">情境試算</button>
+  <button class="tab" data-tab="hist" onclick="switchTab('hist')">配息紀錄</button>
+</div>
+
+<div class="tabpanel active" id="panel-net">
+  <div class="banner" id="nw-banner">
+    <div>
+      <div class="sub">淨值（資產－負債）</div>
+      <div class="num" id="nw-val"></div>
+    </div>
+    <div class="right">
+      <span class="badge" id="nw-badge"></span>
+      <span class="ann" id="nw-ratio"></span>
+    </div>
+  </div>
+
+  <div id="net-warns"></div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>市值假設</div>
+  <div class="sliders">
+    <div class="sl-card">
+      <div class="sl-head">
+        <span class="sl-name">基金淨值(NAV,USD)</span>
+        <span class="sl-right"><input type="text" inputmode="decimal" id="nav-v" value="74.91"><span class="sl-unit">USD</span></span>
+      </div>
+      <input type="range" id="nav-sl" min="60" max="90" step="0.01" value="74.91">
+    </div>
+    <div class="sl-card">
+      <div class="sl-head">
+        <span class="sl-name">匯率(USD/TWD)</span>
+        <span class="sl-right"><input type="text" inputmode="decimal" id="fx2-v" value="31.50"><span class="sl-unit">TWD</span></span>
+      </div>
+      <input type="range" id="fx2-sl" min="28" max="36" step="0.01" value="31.5">
+    </div>
+  </div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.1-2.8-2.8L7 14"/></svg>資產</div>
+  <div class="edit-card">
+    <div class="edit-head"><div class="ttl"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.1-2.8-2.8L7 14"/></svg>資產項目</div><span class="tot" id="asset-tot">$0</span></div>
+    <div id="asset-rows"></div>
+  </div>
+
+  <div class="edit-card" style="margin-top:8px;opacity:.75">
+    <div class="edit-head"><div class="ttl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>備忘（不計入淨值）</div></div>
+    <div id="jiayan-memo"></div>
+  </div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>負債（自動攤還試算）</div>
+  <div class="edit-card">
+    <div class="edit-head"><div class="ttl"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>貸款＋壽險餘額</div><span class="tot" id="debt-tot">$0</span></div>
+    <div id="debt-rows"></div>
+  </div>
+
+  <div class="footnote">
+    負債金額每次開啟頁面會依「起始日期」與今天日期，自動重新試算已繳期數與剩餘本金／保費，不需手動更新。
+  </div>
+</div>
+
+<div class="tabpanel" id="panel-cash">
+  <div class="banner" id="banner">
+    <div>
+      <div class="sub">月淨結餘</div>
+      <div class="num" id="b-net"></div>
+    </div>
+    <div class="right">
+      <span class="badge" id="b-badge"></span>
+      <span class="ann" id="b-ann"></span>
+    </div>
+  </div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>收支總覽</div>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>基金預估配息</div><div class="val" id="k-fund">$0</div><div class="sub">1830萬×配息率÷12</div></div>
+    <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>月收入合計</div><div class="val" id="k-inc">$0</div><div class="sub">所有收入</div></div>
+    <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>月支出合計</div><div class="val" id="k-cost">$0</div><div class="sub">所有支出</div></div>
+    <div class="kpi"><div class="lbl"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>收入/支出比</div><div class="val" id="k-ratio">0%</div><div class="bar"><div class="bar-f" id="k-bar"></div></div></div>
+  </div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>配息率假設</div>
+  <div class="sliders">
+    <div class="sl-card">
+      <div class="sl-head"><span class="sl-name">預估年化配息率</span><span class="sl-right"><input type="text" inputmode="decimal" id="rate-v" value="11.0"><span class="sl-unit">%</span></span></div>
+      <input type="range" id="rate-sl" min="4" max="18" step="0.1" value="11.0">
+      <div class="sl-bounds"><span>4%</span><span>11% 基準</span><span>18%</span></div>
+    </div>
+  </div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>月收入明細</div>
+  <div class="edit-card">
+    <div class="edit-head"><div class="ttl"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>收入項目</div><span class="tot" id="inc-tot">$0</span></div>
+    <div id="inc-rows"></div>
+    <div class="add-form">
+      <input type="text" id="inc-name" placeholder="項目名稱">
+      <input type="number" id="inc-amt" placeholder="金額" min="0" step="1">
+      <button class="add-btn" onclick="addItem('inc')"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
+    </div>
+  </div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>月支出明細</div>
+  <div class="edit-card">
+    <div class="edit-head"><div class="ttl"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>支出項目</div><span class="tot" id="cost-tot">$0</span></div>
+    <div id="cost-rows"></div>
+    <div class="add-form">
+      <input type="text" id="cost-name" placeholder="項目名稱">
+      <input type="number" id="cost-amt" placeholder="金額" min="0" step="1">
+      <button class="add-btn" onclick="addItem('cost')"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
+    </div>
+  </div>
+</div>
+
+<div class="tabpanel" id="panel-scene">
+  <div class="slbl"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>五種配息率情境</div>
+  <div class="scene-grid" id="scenes"></div>
+  <div class="footnote">
+    以「預估年化配息率」為變數，模擬不同配息水準下的月淨結餘。基準情境固定為 11%。
+  </div>
+</div>
+
+<div class="tabpanel" id="panel-hist">
+  <div class="slbl"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>基金申購批次</div>
+  <div class="hist-outer"><div class="hist-scroll"><table class="ht" id="batch-tbl"></table></div></div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>月配息實際紀錄</div>
+  <div class="hist-outer"><div class="hist-scroll"><table class="ht" id="hist"></table></div></div>
+  <div class="hist-add">
+    <div class="ttl">新增下一期配息</div>
+    <div class="fields">
+      <select id="n-yr"><option value="115">115年</option><option value="116">116年</option><option value="117">117年</option></select>
+      <select id="n-mo"><option value="1">1月</option><option value="2">2月</option><option value="3">3月</option><option value="4">4月</option><option value="5">5月</option><option value="6">6月</option><option value="7">7月</option><option value="8">8月</option><option value="9">9月</option><option value="10">10月</option><option value="11">11月</option><option value="12">12月</option></select>
+      <input type="number" id="n-ud" placeholder="每單位USD" step="0.001" min="0">
+      <input type="number" id="n-twd" placeholder="實收台幣" step="1" min="0">
+      <button class="add-btn" onclick="addHistRow()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
+    </div>
+  </div>
+  <div class="footnote">
+    總持有單位數 7,747.758（400萬+830萬+600萬三批次累計）／加權平均成本 NAV 74.09
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-bg" id="modal" onclick="if(event.target===this)hideReset()">
+  <div class="modal">
+    <h3>重置所有資料</h3>
+    <p>將清除所有已儲存的修改，恢復為預設值。此動作無法復原。</p>
+    <div class="modal-btns">
+      <button class="btn-confirm" onclick="doReset()">確認重置</button>
+      <button class="btn-cancel" onclick="hideReset()">取消</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+let UTOT=7747.758; const KEY='fin_v6';
+const tw=v=>Math.round(v).toLocaleString('zh-TW');
+let FX=31.5, RATE=0.11, NAV=74.91, IID=100;
+
+let TOTAL_INVESTED_TWD=18304663;
+
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.tabpanel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+}
+
+let DEF_INC=[
+  {id:1,name:'月薪',amt:66378,auto:false},
+  {id:2,name:'加班費',amt:8000,auto:false},
+  {id:3,name:'危勞津貼',amt:0,auto:false},
+  {id:4,name:'基金配息(估)',amt:0,auto:true},
+];
+let DEF_COST=[
+  {id:10,name:'【北區】原房貸',amt:32400,sub:'803萬 2.66%'},
+  {id:11,name:'【北區】理財型房貸',amt:35040,sub:'881萬 2.55%'},
+  {id:12,name:'【北區】房貸壽險',amt:2299,sub:'保費58萬/20年'},
+  {id:13,name:'【東區】房貸本利攤還',amt:23804,sub:'598.5萬 2.55%'},
+  {id:14,name:'【東區】房貸壽險',amt:1651,sub:'保費83萬/25年'},
+  {id:15,name:'車貸',amt:20892,sub:'140萬 2.35%'},
+  {id:16,name:'信貸',amt:5718,sub:'20萬 1.88%'},
+  {id:17,name:'個人醫療保險費',amt:3300},
+  {id:18,name:'小孩醫療保險費',amt:0},
+  {id:19,name:'生活費',amt:10000},
+  {id:20,name:'管理費',amt:4100},
+  {id:21,name:'孝親費',amt:10000},
+  {id:22,name:'投資(VOO/VT)',amt:15000},
+  {id:23,name:'信用卡費',amt:8651},
+  {id:24,name:'潘寧課輔',amt:10000},
+  {id:25,name:'潘維課輔',amt:10000},
+];
+
+let LOANS=[
+  {name:'北區原房貸',region:'north',principal:8030000,rate:0.0266,years:30,start:'2026-04-27'},
+  {name:'北區理財型房貸',region:'north',principal:8810000,rate:0.0255,years:30,start:'2026-04-27'},
+  {name:'東區房貸',region:'east',principal:5985000,rate:0.0255,years:30,start:'2026-08-27'},
+  {name:'車貸',region:null,principal:1400000,rate:0.0235,years:6,start:'2026-07-30'},
+  {name:'信貸',region:null,principal:200000,rate:0.0188,years:3,start:'2025-08-11'},
+];
+let INSURANCE=[
+  {name:'北區房貸壽險剩餘保費',region:'north',premium:580000,years:20,start:'2026-04-27'},
+  {name:'東區房貸壽險剩餘保費',region:'east',premium:830000,years:25,start:'2026-08-27'},
+];
+
+let DEF_ASSETS={north_re:0,east_re:0,stocks:0,jiayan:296314,cash:0};
+
+let DEF_HIST=[
+  {yr:'114年',mo:'5', ud:0.666,twd:34561, units:1723.533,cost:4000000},
+  {yr:'',    mo:'6',  ud:0.677,twd:34518, units:1723.533,cost:4000000},
+  {yr:'',    mo:'7',  ud:0.683,twd:34453, units:1723.533,cost:4000000},
+  {yr:'',    mo:'8',  ud:0.685,twd:35410, units:1723.533,cost:4000000},
+  {yr:'',    mo:'9',  ud:0.688,twd:35642, units:1723.533,cost:4000000},
+  {yr:'',    mo:'10', ud:0.691,twd:36494, units:1723.533,cost:4000000},
+  {yr:'',    mo:'11', ud:0.684,twd:36749, units:1723.533,cost:4000000},
+  {yr:'',    mo:'12', ud:0.687,twd:37277, units:1723.533,cost:4000000},
+  {yr:'115年',mo:'1', ud:0.691,twd:37572, units:1723.533,cost:4000000},
+  {yr:'',    mo:'2',  ud:0.693,twd:37513, units:1723.533,cost:4000000},
+  {yr:'',    mo:'3',  ud:0.680,twd:37407, units:1723.533,cost:4000000},
+  {yr:'',    mo:'4',  ud:0.672,twd:36602, units:1723.533,cost:4000000},
+  {yr:'115年',mo:'5', ud:0.696,twd:114407,units:5222.082,cost:12304663},
+  {yr:'',    mo:'6',  ud:0.690,twd:113601,units:5222.082,cost:12304663},
+  {yr:'',    mo:'7',  ud:0.693,twd:116483,units:5222.082,cost:12304663},
+  {yr:'',    mo:'8',  ud:0.692,twd:115448,units:5222.082,cost:12304663},
+];
+
+let BATCHES=[
+  {no:1,date:'114/04',desc:'400萬初始部位',nav:71.45,units:1723.533,twd:4000000},
+  {no:2,date:'115/04/30',desc:'增貸830萬(皇普莊園)',nav:74.81,units:3498.549,twd:8304663},
+  {no:3,date:'115/08/25',desc:'自補1.5萬(湊600萬)',nav:74.63,units:6.295,twd:15000},
+  {no:4,date:'115/08/27',desc:'東區房貸融資598.5萬',nav:74.91,units:2519.381,twd:5985000},
+];
+
+let incItems, costItems, hist, assets;
+
+function clone(x){return JSON.parse(JSON.stringify(x));}
+function resetDef(){
+  FX=31.5; RATE=0.11; NAV=74.91; IID=100;
+  incItems=clone(DEF_INC); costItems=clone(DEF_COST); hist=clone(DEF_HIST);
+  assets=clone(DEF_ASSETS);
+}
+
+function loadData(){
+  try{
+    const r=localStorage.getItem(KEY);
+    if(!r){resetDef();return false;}
+    const d=JSON.parse(r);
+    FX = typeof d.fx==='number'?d.fx:31.5;
+    RATE = typeof d.rate==='number'?d.rate:0.11;
+    NAV = typeof d.nav==='number'?d.nav:74.91;
+    incItems = Array.isArray(d.incItems)?d.incItems:clone(DEF_INC);
+    costItems = Array.isArray(d.costItems)?d.costItems:clone(DEF_COST);
+    hist = Array.isArray(d.hist)?d.hist:clone(DEF_HIST);
+    assets = d.assets||clone(DEF_ASSETS);
+    IID = typeof d.iid==='number'?d.iid:100;
+    return true;
+  }catch(e){ resetDef(); return false; }
+}
+
+// ════════════════════════════════════════════════════════════
+// Excel 同步：從 data.json 讀取，若 Excel 有更新則覆蓋目前基準資料
+// ════════════════════════════════════════════════════════════
+const SYNC_KEY='fin_v6_synced_at';
+async function syncFromExcel(){
+  try{
+    const res=await fetch('data.json?t='+Date.now());
+    if(!res.ok) return false;
+    const d=await res.json();
+    const lastSynced=localStorage.getItem(SYNC_KEY);
+    if(lastSynced===d.generatedAt) return false; // Excel未更新，沿用目前資料
+
+    // Excel有新版本：更新所有結構性資料（收支項目、貸款、壽險、批次、歷史配息、假設值）
+    if(Array.isArray(d.income)) DEF_INC=d.income.map((x,i)=>({id:i+1,...x}));
+    if(Array.isArray(d.expense)) DEF_COST=d.expense.map((x,i)=>({id:10+i,...x}));
+    if(Array.isArray(d.loans)) LOANS=d.loans;
+    if(Array.isArray(d.insurance)) INSURANCE=d.insurance;
+    if(Array.isArray(d.batches)) BATCHES=d.batches;
+    if(Array.isArray(d.hist)) DEF_HIST=d.hist;
+    if(typeof d.totalUnits==='number') UTOT=d.totalUnits;
+    if(typeof d.totalInvestedTwd==='number') TOTAL_INVESTED_TWD=d.totalInvestedTwd;
+    if(typeof d.assumptions_rate==='number') RATE=d.assumptions_rate;
+    if(typeof d.nav==='number') NAV=d.nav;
+    if(typeof d.fx==='number') FX=d.fx;
+    if(d.assetsDefault) DEF_ASSETS=d.assetsDefault;
+
+    // 套用為目前使用中的資料（覆蓋掉舊的 localStorage 內容）
+    incItems=clone(DEF_INC); costItems=clone(DEF_COST);
+    hist=clone(DEF_HIST); assets=clone(DEF_ASSETS);
+    IID=Math.max(100, ...incItems.map(x=>x.id), ...costItems.map(x=>x.id))+1;
+
+    localStorage.setItem(SYNC_KEY, d.generatedAt);
+    saveAll(false);
+    return true;
+  }catch(e){
+    console.warn('data.json 同步失敗，使用本機資料', e);
+    return false;
+  }
+}
+
+function saveAll(manual){
+  try{
+    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID}));
+    if(manual) toast('已儲存');
+  }catch(e){ toast('儲存失敗'); }
+}
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2200);
+}
+function showReset(){document.getElementById('modal').classList.add('open');}
+function hideReset(){document.getElementById('modal').classList.remove('open');}
+function doReset(){
+  hideReset(); localStorage.removeItem(KEY); resetDef();
+  document.getElementById('fx2-sl').value=FX; document.getElementById('fx2-v').value=FX.toFixed(2);
+  document.getElementById('rate-sl').value=(RATE*100).toFixed(1); document.getElementById('rate-v').value=(RATE*100).toFixed(1);
+  document.getElementById('nav-sl').value=NAV; document.getElementById('nav-v').value=NAV.toFixed(2);
+  renderAll(); toast('已重置為預設值');
+}
+
+function monthsBetween(startStr, today){
+  const s=new Date(startStr);
+  let months=(today.getFullYear()-s.getFullYear())*12+(today.getMonth()-s.getMonth());
+  if(today.getDate()<s.getDate()) months--;
+  return Math.max(0,months);
+}
+function remainingBalance(principal,annualRate,years,startStr){
+  const today=new Date();
+  const p=monthsBetween(startStr,today);
+  const r=annualRate/12, n=years*12;
+  if(p<=0) return principal;
+  if(p>=n) return 0;
+  return principal*(Math.pow(1+r,n)-Math.pow(1+r,p))/(Math.pow(1+r,n)-1);
+}
+function remainingPremium(premium,years,startStr){
+  const today=new Date();
+  const p=monthsBetween(startStr,today);
+  const n=years*12;
+  return premium*Math.max(0,n-p)/n;
+}
+function paidMonths(startStr){
+  return monthsBetween(startStr,new Date());
+}
+
+const nc=n=>n>=0?{bg:'#e1f5ee',tc:'#085041',lbl:'安全'}:n>=-20000?{bg:'#faeeda',tc:'#633806',lbl:'警戒'}:{bg:'#faece7',tc:'#712b13',lbl:'危險'};
+
+function fundInc(){ return TOTAL_INVESTED_TWD*RATE/12; }
+function tInc(){ return incItems.reduce((s,x)=>s+(x.auto?fundInc():x.amt),0); }
+function tCost(){ return costItems.reduce((s,x)=>s+x.amt,0); }
+
+function totalAssets(){
+  const fundMV=UTOT*NAV*FX;
+  return fundMV+assets.north_re+assets.east_re+assets.stocks+assets.cash;
+}
+function totalDebt(){
+  let sum=0;
+  LOANS.forEach(l=>sum+=remainingBalance(l.principal,l.rate,l.years,l.start));
+  INSURANCE.forEach(ins=>sum+=remainingPremium(ins.premium,ins.years,ins.start));
+  return sum;
+}
+
+function renderNetWorth(){
+  const a=totalAssets(), d=totalDebt(), nw=a-d;
+  const el=document.getElementById('nw-banner');
+  const c = nw>=0?{bg:'#e1f5ee',tc:'#085041',lbl:'資產大於負債'}:{bg:'#faece7',tc:'#712b13',lbl:'資不抵債'};
+  el.style.background=c.bg;
+  const v=document.getElementById('nw-val');
+  v.style.color=c.tc; v.textContent=(nw>=0?'':'−')+'$'+tw(Math.abs(nw));
+  const b=document.getElementById('nw-badge');
+  b.textContent=c.lbl; b.style.cssText=`background:white;color:${c.tc}`;
+  const ratio=document.getElementById('nw-ratio');
+  ratio.style.color=c.tc;
+  ratio.textContent='負債比 '+(a>0?(d/a*100).toFixed(1):'0')+'%';
+
+  const warnsEl=document.getElementById('net-warns');
+  let warns=[];
+  if(nw<0) warns.push({cls:'warn-danger',msg:'目前資不抵債，需持續累積資產或降低負債'});
+  const ratio2=a>0?d/a:0;
+  if(ratio2>1.3 && nw>=0) warns.push({cls:'warn-amber',msg:'負債比偏高（超過130%），財務槓桿風險需留意'});
+  warnsEl.innerHTML=warns.map(w=>`<div class="warn-chip ${w.cls}"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>${w.msg}</div>`).join('');
+}
+
+function renderAssets(){
+  const fundMV=UTOT*NAV*FX;
+  const rows=[
+    {label:'基金市值',sub:'單位數×NAV×匯率（自動）',val:fundMV,auto:true},
+    {label:'北區不動產估值',key:'north_re'},
+    {label:'東區不動產估值',key:'east_re'},
+    {label:'股票市值',sub:'0050/0052/2330等',key:'stocks'},
+    {label:'現金／存款',key:'cash'},
+  ];
+  document.getElementById('asset-rows').innerHTML=rows.map((r,i)=>{
+    const bg=i%2?' style="background:#fafaf8"':'';
+    if(r.auto){
+      return `<div class="al-row"${bg}><span class="al-nm">${r.label}<span class="al-sub">${r.sub}</span></span><span class="autoval pos">$${tw(r.val)}</span></div>`;
+    }
+    return `<div class="al-row"${bg}><span class="al-nm">${r.label}${r.sub?`<span class="al-sub">${r.sub}</span>`:''}</span>
+      <input type="number" value="${assets[r.key]}" min="0" step="1000" oninput="updAsset('${r.key}',this.value)"></div>`;
+  }).join('');
+  document.getElementById('asset-tot').textContent='$'+tw(totalAssets());
+
+  // 家妍投資：僅供備忘參考，不計入個人淨值
+  const memoEl=document.getElementById('jiayan-memo');
+  if(memoEl){
+    memoEl.innerHTML=`<div class="al-row"><span class="al-nm">家妍投資剩餘部位<span class="al-sub">投機性個股成本法，不計入淨值</span></span><span class="autoval" style="color:var(--hint)">$${tw(assets.jiayan||0)}</span></div>`;
+  }
+}
+
+function updAsset(key,v){
+  assets[key]=parseFloat(v)||0;
+  renderNetWorth(); document.getElementById('asset-tot').textContent='$'+tw(totalAssets());
+  debSave();
+}
+
+function renderDebts(){
+  const rows=[];
+  LOANS.forEach(l=>{
+    const bal=remainingBalance(l.principal,l.rate,l.years,l.start);
+    const p=paidMonths(l.start);
+    rows.push({name:l.name,sub:`已繳${p}期／原始$${tw(l.principal)}`,val:bal});
+  });
+  INSURANCE.forEach(ins=>{
+    const bal=remainingPremium(ins.premium,ins.years,ins.start);
+    const p=paidMonths(ins.start);
+    rows.push({name:ins.name,sub:`已繳${p}期／總保費$${tw(ins.premium)}`,val:bal});
+  });
+  document.getElementById('debt-rows').innerHTML=rows.map((r,i)=>{
+    const bg=i%2?' style="background:#fafaf8"':'';
+    return `<div class="al-row"${bg}><span class="al-nm">${r.name}<span class="al-sub">${r.sub}</span></span><span class="autoval">-$${tw(r.val)}</span></div>`;
+  }).join('');
+  document.getElementById('debt-tot').textContent='-$'+tw(totalDebt());
+}
+
+function renderBanner(){
+  const n=tInc()-tCost(), c=nc(n);
+  const el=document.getElementById('banner');
+  el.style.background=c.bg;
+  const ne=document.getElementById('b-net');
+  ne.style.color=c.tc; ne.textContent=(n>=0?'+ ':'− ')+'$'+tw(Math.abs(n));
+  const ba=document.getElementById('b-badge');
+  ba.textContent=c.lbl; ba.style.cssText=`background:white;color:${c.tc}`;
+  const an=document.getElementById('b-ann');
+  an.style.color=c.tc; an.textContent='年化 '+(n>=0?'+ ':'− ')+'$'+tw(Math.abs(n*12));
+}
+
+function renderKpi(){
+  const f=fundInc(), ti=tInc(), tc=tCost();
+  document.getElementById('k-fund').textContent='$'+tw(f);
+  document.getElementById('k-inc').textContent='$'+tw(ti);
+  document.getElementById('k-cost').textContent='$'+tw(tc);
+  const r=Math.min(130,Math.round(ti/tc*100));
+  document.getElementById('k-ratio').textContent=r+'%';
+  const b=document.getElementById('k-bar');
+  b.style.width=Math.min(100,r)+'%';
+  b.style.background=r>=100?'#1d9e75':r>=80?'#ba7517':'#d85a30';
+}
+
+const TRASH=`<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>`;
+
+function updateAutoFundCell(){
+  const el=document.getElementById('auto-fund-display');
+  if(el) el.textContent=Math.round(fundInc()).toLocaleString('zh-TW');
+}
+
+function renderRows(){
+  const f=Math.round(fundInc());
+  document.getElementById('inc-rows').innerHTML=incItems.map((it,i)=>`
+    <div class="erow${i%2?'':''}" style="${i%2?'background:#fafaf8':''}">
+      <span class="nm">${it.name}</span>
+      <div class="iw"><span class="cur">$</span>
+        ${it.auto
+          ?`<span id="auto-fund-display" style="width:90px;font-size:13px;text-align:right;display:inline-block;padding:5px 8px;height:34px;line-height:24px;border:0.5px solid #e8e6e0;border-radius:8px;background:#f7f7f5;color:#a0a0a0;box-sizing:border-box">${f.toLocaleString('zh-TW')}</span>`
+          :`<input type="number" value="${it.amt}" min="0" step="1" oninput="upd('inc',${it.id},this.value)">`
+        }
+        ${!it.auto?`<button class="dbtn" onclick="del('inc',${it.id})" aria-label="刪除">${TRASH}</button>`:'<span style="width:24px"></span>'}
+      </div>
+    </div>`).join('');
+  document.getElementById('inc-tot').textContent='$'+tw(tInc());
+
+  document.getElementById('cost-rows').innerHTML=costItems.map((it,i)=>`
+    <div class="erow" style="${i%2?'background:#fafaf8':''}">
+      <span class="nm">${it.name}${it.sub?`<span class="sub">${it.sub}</span>`:''}</span>
+      <div class="iw"><span class="cur">$</span>
+        <input type="number" value="${it.amt}" min="0" step="1" oninput="upd('cost',${it.id},this.value)">
+        <button class="dbtn" onclick="del('cost',${it.id})" aria-label="刪除">${TRASH}</button>
+      </div>
+    </div>`).join('');
+  document.getElementById('cost-tot').textContent='$'+tw(tCost());
+}
+
+function upd(t,id,v){
+  const a=t==='inc'?incItems:costItems, it=a.find(x=>x.id===id);
+  if(it) it.amt=parseInt(v)||0;
+  renderBanner(); renderKpi(); renderScenes();
+  debSave();
+}
+function del(t,id){
+  if(t==='inc') incItems=incItems.filter(x=>x.id!==id);
+  else costItems=costItems.filter(x=>x.id!==id);
+  renderAll(); debSave();
+}
+function addItem(t){
+  const n=document.getElementById(t+'-name'), a=document.getElementById(t+'-amt');
+  const name=n.value.trim(), amt=parseInt(a.value)||0;
+  if(!name||amt<=0) return;
+  if(t==='inc') incItems.push({id:IID++,name,amt,auto:false});
+  else costItems.push({id:IID++,name,amt});
+  n.value=''; a.value='';
+  renderAll(); debSave();
+}
+
+function renderScenes(){
+  const cost=tCost();
+  const nonAuto=incItems.filter(x=>!x.auto).reduce((s,x)=>s+x.amt,0);
+  const defs=[
+    {name:'極端悲觀',rate:0.06},
+    {name:'悲觀',rate:0.085},
+    {name:'基準',rate:0.11,mid:true},
+    {name:'樂觀',rate:0.135},
+    {name:'極端樂觀',rate:0.16},
+  ];
+  document.getElementById('scenes').innerHTML=defs.map(d=>{
+    const fund=TOTAL_INVESTED_TWD*d.rate/12;
+    const n=nonAuto+fund-cost, c=nc(n);
+    return `<div class="sc${d.mid?' mid':''}" style="background:${c.bg}">
+      <div class="tag" style="background:${c.bg};color:${c.tc};border:0.5px solid ${c.tc}50">${(d.rate*100).toFixed(1)}%</div>
+      <div class="nm" style="color:${c.tc}">${d.name}</div>
+      <div class="inf" style="color:${c.tc}">預估配息 $${tw(fund)}</div>
+      <div class="net" style="color:${c.tc}">${n>=0?'+ ':'− '}$${tw(Math.abs(n))}</div>
+      <span class="pill" style="background:white;color:${c.tc}">${c.lbl}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderBatchTable(){
+  let rows='';
+  BATCHES.forEach((b,i)=>{
+    rows+=`<tr class="${i%2?'alt':''}">
+      <td class="c">${b.no}</td><td class="c">${b.date}</td>
+      <td style="text-align:left">${b.desc}</td>
+      <td>$${b.nav.toFixed(2)}</td><td>${b.units.toFixed(3)}</td><td>$${tw(b.twd)}</td>
+    </tr>`;
+  });
+  document.getElementById('batch-tbl').innerHTML=`<thead><tr>
+    <th>批次</th><th>日期</th><th>說明</th><th>NAV</th><th>單位數</th><th>投入</th>
+  </tr></thead><tbody>${rows}</tbody>`;
+}
+
+function renderHist(){
+  let rows='',su=0,st=0,sUd=0;
+  hist.forEach((d,i)=>{
+    const ua=d.ud*d.units, fi=(d.twd/ua).toFixed(1), ann=(d.twd*12/d.cost*100).toFixed(2);
+    su+=ua; st+=d.twd; sUd+=d.ud;
+    rows+=`<tr class="${i%2?'alt':''}">
+      <td class="c">${d.yr||''}</td><td class="c">${d.mo}月</td>
+      <td>${d.ud.toFixed(3)}</td><td>$${d.twd.toLocaleString('zh-TW')}</td>
+      <td>${fi}</td><td class="${parseFloat(ann)<10?'wrn':'ok'}">${ann}%</td>
+    </tr>`;
+  });
+  const n=hist.length;
+  const avgAnn=(hist.reduce((s,d)=>s+(d.twd*12/d.cost*100),0)/n).toFixed(2);
+  rows+=`<tr class="sum"><td colspan="2" class="c">平均</td>
+    <td>${(sUd/n).toFixed(3)}</td><td>$${Math.round(st/n).toLocaleString('zh-TW')}</td>
+    <td>—</td><td class="${parseFloat(avgAnn)<10?'wrn':'ok'}">${avgAnn}%</td></tr>`;
+  document.getElementById('hist').innerHTML=`<thead><tr>
+    <th>年度</th><th>月份</th><th>單位配息</th><th>實收台幣</th><th>匯率</th><th>年化</th>
+  </tr></thead><tbody>${rows}</tbody>`;
+}
+
+function addHistRow(){
+  const yr=document.getElementById('n-yr').value, mo=document.getElementById('n-mo').value;
+  const ud=parseFloat(document.getElementById('n-ud').value), twd=parseInt(document.getElementById('n-twd').value);
+  if(isNaN(ud)||isNaN(twd)||ud<=0||twd<=0) return;
+  // 承接原本的顯示慣例：同一年度只在該年第一筆顯示「115年」，其餘留空
+  const lastYr = hist.length ? (hist[hist.length-1].yr || hist.slice().reverse().find(h=>h.yr).yr) : null;
+  const yrLabel = (lastYr === yr+'年') ? '' : yr+'年';
+  hist.push({yr:yrLabel,mo,ud,twd,units:UTOT,cost:TOTAL_INVESTED_TWD});
+  document.getElementById('n-ud').value=''; document.getElementById('n-twd').value='';
+  renderHist(); saveAll(false); toast('配息記錄已新增並儲存');
+  // 新增後，下拉選單直接指向下一個月，方便連續補登
+  advanceHistDefaults();
+}
+
+function initHistDefaults(){
+  const today=new Date();
+  const minguoYr=today.getFullYear()-1911;
+  const mo=today.getMonth()+1;
+  const yrSel=document.getElementById('n-yr'), moSel=document.getElementById('n-mo');
+  if(yrSel.querySelector(`option[value="${minguoYr}"]`)) yrSel.value=String(minguoYr);
+  moSel.value=String(mo);
+}
+
+function advanceHistDefaults(){
+  const yrSel=document.getElementById('n-yr'), moSel=document.getElementById('n-mo');
+  let yr=parseInt(yrSel.value), mo=parseInt(moSel.value)+1;
+  if(mo>12){ mo=1; yr+=1; }
+  if(yrSel.querySelector(`option[value="${yr}"]`)) yrSel.value=String(yr);
+  moSel.value=String(mo);
+}
+
+let _st=null;
+function debSave(){ clearTimeout(_st); _st=setTimeout(()=>saveAll(false),1200); }
+
+function renderAll(){
+  renderNetWorth(); renderAssets(); renderDebts();
+  renderBanner(); renderKpi(); renderRows(); renderScenes();
+  renderBatchTable(); renderHist();
+}
+
+document.getElementById('fx2-sl').addEventListener('input',function(){
+  FX=parseFloat(this.value); document.getElementById('fx2-v').value=FX.toFixed(2);
+  renderNetWorth(); renderAssets(); debSave();
+});
+document.getElementById('fx2-v').addEventListener('input',function(){
+  const v=parseFloat(this.value);
+  if(isNaN(v)||v<28||v>36) return;
+  FX=Math.round(v*100)/100; document.getElementById('fx2-sl').value=FX;
+  renderNetWorth(); renderAssets(); debSave();
+});
+document.getElementById('nav-sl').addEventListener('input',function(){
+  NAV=parseFloat(this.value); document.getElementById('nav-v').value=NAV.toFixed(2);
+  renderNetWorth(); renderAssets(); debSave();
+});
+document.getElementById('nav-v').addEventListener('input',function(){
+  const v=parseFloat(this.value);
+  if(isNaN(v)||v<60||v>90) return;
+  NAV=Math.round(v*100)/100; document.getElementById('nav-sl').value=NAV;
+  renderNetWorth(); renderAssets(); debSave();
+});
+document.getElementById('rate-sl').addEventListener('input',function(){
+  RATE=parseFloat(this.value)/100; document.getElementById('rate-v').value=(RATE*100).toFixed(1);
+  renderBanner(); renderKpi(); updateAutoFundCell(); renderScenes(); debSave();
+});
+document.getElementById('rate-v').addEventListener('input',function(){
+  const v=parseFloat(this.value);
+  if(isNaN(v)||v<4||v>18) return;
+  RATE=Math.round(v*10)/1000; document.getElementById('rate-sl').value=(RATE*100).toFixed(1);
+  renderBanner(); renderKpi(); updateAutoFundCell(); renderScenes(); debSave();
+});
+
+// ════════════════════════════════════════════════════════════
+// 密碼鎖定：每次開啟頁面都需要輸入密碼，成功後才初始化整個應用
+// ════════════════════════════════════════════════════════════
+const PW_HASH='6a1227b96a180e414c2d80c099e0734938a2af5275a9c17941c4035b6a0507f9';
+async function sha256Hex(text){
+  const enc=new TextEncoder().encode(text);
+  const buf=await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function checkPassword(e){
+  e.preventDefault();
+  const input=document.getElementById('lock-input');
+  const err=document.getElementById('lock-err');
+  const val=input.value;
+  const hash=await sha256Hex(val);
+  if(hash===PW_HASH){
+    document.getElementById('lock-screen').style.display='none';
+    document.querySelector('.page').classList.add('unlocked');
+    initApp();
+  }else{
+    err.textContent='密碼錯誤，請再試一次';
+    input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
+    input.value=''; input.focus();
+  }
+  return false;
+}
+
+function initApp(){
+const loaded=loadData();
+function syncSlidersToState(){
+  document.getElementById('fx2-sl').value=FX; document.getElementById('fx2-v').value=FX.toFixed(2);
+  document.getElementById('nav-sl').value=NAV; document.getElementById('nav-v').value=NAV.toFixed(2);
+  document.getElementById('rate-sl').value=(RATE*100).toFixed(1); document.getElementById('rate-v').value=(RATE*100).toFixed(1);
+}
+syncSlidersToState();
+const dd=new Date();
+document.getElementById('hdr-date').textContent=`${dd.getFullYear()-1911}年${dd.getMonth()+1}月${dd.getDate()}日`;
+// 新增配息區塊：自動對應到今天所在的民國年月，避免手動選錯月份
+initHistDefaults();
+renderAll();
+if(loaded) toast('已讀取上次儲存的資料');
+
+// 背景嘗試從 Excel 同步最新資料；若 Excel 有更新則重新渲染整頁
+syncFromExcel().then(updated=>{
+  if(updated){
+    syncSlidersToState();
+    renderAll();
+    toast('📥 已從 Excel 同步最新資料');
+  }
+});
+}
+</script>
+</body>
+</html>
