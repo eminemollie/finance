@@ -1,1 +1,36 @@
+name: 同步財務Excel到網頁
 
+on:
+  push:
+    paths:
+      - '財務管理系統.xlsx'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 安裝 openpyxl
+        run: pip install openpyxl --quiet
+
+      - name: 執行 Excel 轉 JSON
+        run: python3 extract_data.py "財務管理系統.xlsx" data.json
+
+      - name: 提交並推送
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/eminemollie/finance.git
+          git add data.json
+          git diff --staged --quiet && echo "無變動，略過提交" || \
+            git commit -m "自動同步：更新 data.json ($(date +%Y/%m/%d %H:%M))" && git push origin main
