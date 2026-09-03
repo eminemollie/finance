@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T14:56:38.633180",
+  "generatedAt": "2026-09-03T15:20:53.969960",
   "sourceFile": "financial_management_system.xlsx",
   "assumptions_rate": 0.11,
   "income": [
@@ -48,7 +48,7 @@
     {
       "name": "【東區】理財型房貸壽險",
       "amt": 1651,
-      "sub": "平準型，保額1044萬(25年)，保費83萬/4"
+      "sub": "平準型，保額1044萬(25年)；總保費82萬9"
     },
     {
       "name": "車貸",
@@ -159,7 +159,7 @@
     {
       "name": "東區房貸壽險剩餘保費",
       "region": "east",
-      "premium": 830000,
+      "premium": 414625,
       "years": 25,
       "start": "2026-08-27"
     }
