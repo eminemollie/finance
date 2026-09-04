@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T00:15:16.846159",
+  "generatedAt": "2026-09-04T00:27:16.356352",
   "sourceFile": "financial_management_system.xlsx",
   "assumptions_rate": 0.11,
   "income": [
@@ -333,8 +333,8 @@
   "nav": 74.91,
   "fx": 31.5,
   "assetsDefault": {
-    "north_re": 0,
-    "east_re": 0,
+    "north_re": 21050000,
+    "east_re": 7481250,
     "stocks": 0,
     "jiayan": 296314,
     "cash": 0
