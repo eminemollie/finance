@@ -4,8 +4,6 @@ on:
   push:
     paths:
       - '財務管理系統.xlsx'
-  schedule:
-    - cron: '0 6 * * 1-5'   # 台灣時間平日下午2點，抓取當日基金淨值
   workflow_dispatch:
 
 permissions:
@@ -21,14 +19,20 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 安裝相依套件
-        run: pip install openpyxl requests --quiet
+        run: pip install openpyxl --quiet
 
       - name: 執行 Excel 轉 JSON
         run: python3 extract_data.py "財務管理系統.xlsx" data.json
 
-      - name: 嘗試抓取基金最新市場淨值（失敗不中斷流程）
-        run: python3 fetch_nav.py data.json
-        continue-on-error: true
+      - name: 移除原始Excel檔案（僅保留data.json，降低repo內敏感資訊曝露）
+        run: |
+          if [ -f "財務管理系統.xlsx" ]; then
+            git rm --cached --ignore-unmatch "財務管理系統.xlsx"
+            rm -f "財務管理系統.xlsx"
+            echo "已移除財務管理系統.xlsx"
+          else
+            echo "財務管理系統.xlsx 不存在，略過"
+          fi
 
       - name: 提交並推送
         env:
@@ -39,4 +43,4 @@ jobs:
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/eminemollie/finance.git
           git add data.json
           git diff --staged --quiet && echo "無變動，略過提交" || \
-            git commit -m "自動同步：更新 data.json ($(date +%Y/%m/%d %H:%M))" && git push origin main
+            git commit -m "自動同步：更新 data.json 並移除原始Excel ($(date +%Y/%m/%d %H:%M))" && git push origin main
