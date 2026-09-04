@@ -174,6 +174,7 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
   <div class="hdr-left">
     <div class="title">財務壓力測試</div>
     <div class="date" id="hdr-date"></div>
+    <div class="date" id="saved-at" style="color:var(--hint)"></div>
   </div>
   <div class="hdr-right">
     <button class="hdr-btn" onclick="showReset()">
@@ -491,7 +492,75 @@ function saveAll(manual){
     localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID}));
     if(manual) toast('已儲存');
   }catch(e){ toast('儲存失敗'); }
+  pushToCloud();
 }
+
+// ════════════════════════════════════════════════════════════
+// 雲端同步：讓手機與電腦瀏覽器共用同一份即時資料
+// 部署 Cloudflare Worker 後，把網址填入下面 CLOUD_SYNC_URL
+// ════════════════════════════════════════════════════════════
+const CLOUD_SYNC_URL='https://finance-sync.eminemollie.workers.dev'; // 例：https://finance-sync.你的帳號.workers.dev
+let _cloudPushTimer=null;
+let _cloudAvailable=false;
+let _cloudLastPushedAt=0;
+
+async function loadFromCloud(){
+  if(!CLOUD_SYNC_URL) return false;
+  try{
+    const res=await fetch(CLOUD_SYNC_URL+'/data?t='+Date.now());
+    if(!res.ok) return false;
+    const payload=await res.json();
+    _cloudAvailable=true;
+    if(!payload.exists || !payload.data) return false;
+    const d=payload.data;
+    FX = typeof d.fx==='number'?d.fx:FX;
+    RATE = typeof d.rate==='number'?d.rate:RATE;
+    NAV = typeof d.nav==='number'?d.nav:NAV;
+    incItems = Array.isArray(d.incItems)?d.incItems:incItems;
+    costItems = Array.isArray(d.costItems)?d.costItems:costItems;
+    hist = Array.isArray(d.hist)?d.hist:hist;
+    assets = d.assets||assets;
+    IID = typeof d.iid==='number'?d.iid:IID;
+    if(d.excelSyncedAt) localStorage.setItem(SYNC_KEY, d.excelSyncedAt);
+    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID}));
+    return true;
+  }catch(e){
+    console.warn('雲端讀取失敗，使用本機資料', e);
+    return false;
+  }
+}
+
+function pushToCloud(){
+  if(!CLOUD_SYNC_URL) return;
+  clearTimeout(_cloudPushTimer);
+  _cloudPushTimer=setTimeout(async ()=>{
+    try{
+      const payload={fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID,
+        excelSyncedAt:localStorage.getItem(SYNC_KEY)||''};
+      const res=await fetch(CLOUD_SYNC_URL+'/data',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+PW_HASH},
+        body:JSON.stringify(payload),
+      });
+      if(res.ok){
+        _cloudAvailable=true;
+        _cloudLastPushedAt=Date.now();
+        updateCloudBadge('✅ 已同步至雲端');
+      }else{
+        updateCloudBadge('⚠️ 雲端同步失敗');
+      }
+    }catch(e){
+      console.warn('雲端寫入失敗', e);
+      updateCloudBadge('⚠️ 雲端連線失敗（離線？）');
+    }
+  }, 800);
+}
+
+function updateCloudBadge(msg){
+  const el=document.getElementById('saved-at');
+  if(el) el.textContent=msg;
+}
+
 function toast(msg){
   const el=document.getElementById('toast');
   el.textContent=msg; el.classList.add('show');
@@ -869,14 +938,30 @@ initHistDefaults();
 renderAll();
 if(loaded) toast('已讀取上次儲存的資料');
 
-// 背景嘗試從 Excel 同步最新資料；若 Excel 有更新則重新渲染整頁
-syncFromExcel().then(updated=>{
-  if(updated){
+if(!CLOUD_SYNC_URL){
+  updateCloudBadge('雲端同步未設定（僅此裝置本機儲存）');
+}
+
+// 背景流程：① 先抓雲端最新即時資料（跨裝置同步）② 再檢查Excel是否有新版本（結構性更新）
+(async ()=>{
+  const cloudUpdated = await loadFromCloud();
+  if(cloudUpdated){
+    syncSlidersToState();
+    renderAll();
+    toast('☁️ 已從雲端同步最新資料');
+  }
+
+  const excelUpdated = await syncFromExcel();
+  if(excelUpdated){
     syncSlidersToState();
     renderAll();
     toast('📥 已從 Excel 同步最新資料');
   }
-});
+
+  if(CLOUD_SYNC_URL && _cloudAvailable){
+    updateCloudBadge('☁️ 雲端同步已連線');
+  }
+})();
 }
 </script>
 </body>
