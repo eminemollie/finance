@@ -499,20 +499,21 @@ function saveAll(manual){
 // 雲端同步：讓手機與電腦瀏覽器共用同一份即時資料
 // 部署 Cloudflare Worker 後，把網址填入下面 CLOUD_SYNC_URL
 // ════════════════════════════════════════════════════════════
-const CLOUD_SYNC_URL='https://finance-sync.eminemollie.workers.dev'; // 例：https://finance-sync.你的帳號.workers.dev
+const CLOUD_SYNC_URL='https://finance-sync.eminemollie.workers.dev';
 let _cloudPushTimer=null;
 let _cloudAvailable=false;
 let _cloudLastPushedAt=0;
 
 async function loadFromCloud(){
-  if(!CLOUD_SYNC_URL) return false;
+  if(!CLOUD_SYNC_URL || !_cryptoKey) return false;
   try{
     const res=await fetch(CLOUD_SYNC_URL+'/data?t='+Date.now());
     if(!res.ok) return false;
     const payload=await res.json();
     _cloudAvailable=true;
     if(!payload.exists || !payload.data) return false;
-    const d=payload.data;
+    const d=await decryptFromCloud(payload.data); // 用記憶體中的金鑰解密
+    if(!d) return false; // 解密失敗（密碼不符/資料損毀），視同無有效雲端資料
     FX = typeof d.fx==='number'?d.fx:FX;
     RATE = typeof d.rate==='number'?d.rate:RATE;
     NAV = typeof d.nav==='number'?d.nav:NAV;
@@ -531,21 +532,22 @@ async function loadFromCloud(){
 }
 
 function pushToCloud(){
-  if(!CLOUD_SYNC_URL) return;
+  if(!CLOUD_SYNC_URL || !_cryptoKey) return;
   clearTimeout(_cloudPushTimer);
   _cloudPushTimer=setTimeout(async ()=>{
     try{
       const payload={fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID,
         excelSyncedAt:localStorage.getItem(SYNC_KEY)||''};
+      const ciphertext=await encryptForCloud(payload); // 加密後才送出，雲端只存得到亂碼
       const res=await fetch(CLOUD_SYNC_URL+'/data',{
         method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+PW_HASH},
-        body:JSON.stringify(payload),
+        headers:{'Content-Type':'text/plain','Authorization':'Bearer '+PW_HASH},
+        body:ciphertext,
       });
       if(res.ok){
         _cloudAvailable=true;
         _cloudLastPushedAt=Date.now();
-        updateCloudBadge('✅ 已同步至雲端');
+        updateCloudBadge('✅ 已加密同步至雲端');
       }else{
         updateCloudBadge('⚠️ 雲端同步失敗');
       }
@@ -905,6 +907,58 @@ async function sha256Hex(text){
   const buf=await crypto.subtle.digest('SHA-256', enc);
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
+
+// ════════════════════════════════════════════════════════════
+// 端對端加密：用「密碼本身」（只存在記憶體，從不寫入任何檔案）
+// 衍生出加密金鑰，雲端只會存到加密後的亂碼，沒有密碼無法還原。
+// 就算有人抓到 Worker 網址、甚至抓到 PW_HASH，也解不開這裡的資料，
+// 因為金鑰是從「明碼密碼」衍生的，而明碼密碼從未寫進任何檔案。
+// ════════════════════════════════════════════════════════════
+let _cryptoKey=null;
+const _encSalt=new TextEncoder().encode('finance-dashboard-salt-v1');
+
+async function deriveKey(password){
+  const enc=new TextEncoder();
+  const keyMaterial=await crypto.subtle.importKey(
+    'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
+  );
+  return await crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt:_encSalt, iterations:100000, hash:'SHA-256' },
+    keyMaterial,
+    { name:'AES-GCM', length:256 },
+    false,
+    ['encrypt','decrypt']
+  );
+}
+
+async function encryptForCloud(obj){
+  if(!_cryptoKey) return null;
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const enc=new TextEncoder();
+  const data=enc.encode(JSON.stringify(obj));
+  const ciphertext=await crypto.subtle.encrypt({name:'AES-GCM', iv}, _cryptoKey, data);
+  const combined=new Uint8Array(iv.length+ciphertext.byteLength);
+  combined.set(iv,0); combined.set(new Uint8Array(ciphertext), iv.length);
+  let bin=''; combined.forEach(b=>bin+=String.fromCharCode(b));
+  return btoa(bin);
+}
+
+async function decryptFromCloud(b64){
+  if(!_cryptoKey || !b64) return null;
+  try{
+    const bin=atob(b64);
+    const combined=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) combined[i]=bin.charCodeAt(i);
+    const iv=combined.slice(0,12);
+    const ciphertext=combined.slice(12);
+    const plaintext=await crypto.subtle.decrypt({name:'AES-GCM', iv}, _cryptoKey, ciphertext);
+    return JSON.parse(new TextDecoder().decode(plaintext));
+  }catch(e){
+    console.warn('雲端資料解密失敗（密碼不符或資料損毀）', e);
+    return null;
+  }
+}
+
 async function checkPassword(e){
   e.preventDefault();
   const input=document.getElementById('lock-input');
@@ -912,6 +966,7 @@ async function checkPassword(e){
   const val=input.value;
   const hash=await sha256Hex(val);
   if(hash===PW_HASH){
+    _cryptoKey=await deriveKey(val); // 用明碼密碼衍生加密金鑰，密碼本身不做任何儲存
     document.getElementById('lock-screen').style.display='none';
     document.querySelector('.page').classList.add('unlocked');
     initApp();
