@@ -138,6 +138,14 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
 .warn-chip svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .warn-danger{background:#faece7;color:#712b13}
 .warn-amber{background:#faeeda;color:#633806}
+.health-alert{margin:12px 16px 4px;background:#fff4e5;border:1px solid #f0b94d;border-radius:12px;padding:14px 16px}
+.health-alert-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.health-alert-head svg{width:18px;height:18px;stroke:#8a5a00;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.health-alert-head span{flex:1;font-size:13px;font-weight:600;color:#5c3d00}
+.health-alert-head button{background:none;border:none;font-size:14px;color:#8a5a00;cursor:pointer;padding:2px 6px;line-height:1}
+.health-alert-list{margin:0 0 8px;padding-left:20px}
+.health-alert-list li{font-size:12px;color:#5c3d00;line-height:1.6;margin-bottom:2px}
+.health-alert-note{font-size:11px;color:#8a6a2f;line-height:1.5}
 .lock-screen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;padding-top:calc(24px + env(safe-area-inset-top));padding-bottom:calc(24px + env(safe-area-inset-bottom))}
 .lock-icon{width:56px;height:56px;border-radius:16px;background:var(--text);display:flex;align-items:center;justify-content:center;margin-bottom:24px}
 .lock-icon svg{width:26px;height:26px;stroke:white;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -185,6 +193,8 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
     </button>
   </div>
 </div>
+
+<div id="health-banner" style="display:none"></div>
 
 <div class="tabs">
   <button class="tab active" data-tab="net" onclick="switchTab('net')">淨值總覽</button>
@@ -456,6 +466,10 @@ async function syncFromExcel(){
     const res=await fetch('data.json?t='+Date.now());
     if(!res.ok) return false;
     const d=await res.json();
+
+    // 健檢機制：檢查這次同步是否有異常警示（不論Excel是否有更新都要檢查一次）
+    checkSyncHealth(d);
+
     const lastSynced=localStorage.getItem(SYNC_KEY);
     if(lastSynced===d.generatedAt) return false; // Excel未更新，沿用目前資料
 
@@ -485,6 +499,53 @@ async function syncFromExcel(){
     console.warn('data.json 同步失敗，使用本機資料', e);
     return false;
   }
+}
+
+// ════════════════════════════════════════════════════════════
+// Excel 同步健檢：偵測擷取結果是否異常，異常時在畫面上顯眼提示
+// ════════════════════════════════════════════════════════════
+const HEALTH_DISMISS_KEY='fin_health_dismissed';
+function checkSyncHealth(d){
+  const hc=d._healthCheck;
+  if(!hc || hc.ok || !Array.isArray(hc.warnings) || hc.warnings.length===0){
+    renderHealthBanner(null);
+    return;
+  }
+  // 用 checkedAt 當作這批警示的唯一標記；使用者關閉過的同一批不再重複打擾
+  const dismissedAt=localStorage.getItem(HEALTH_DISMISS_KEY);
+  if(dismissedAt===hc.checkedAt){
+    renderHealthBanner(null);
+    return;
+  }
+  renderHealthBanner(hc);
+}
+
+function renderHealthBanner(hc){
+  const el=document.getElementById('health-banner');
+  if(!el) return;
+  if(!hc){
+    el.style.display='none';
+    el.innerHTML='';
+    return;
+  }
+  el.style.display='block';
+  el.innerHTML=`
+    <div class="health-alert">
+      <div class="health-alert-head">
+        <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+        <span>Excel 同步健檢異常</span>
+        <button onclick="dismissHealthBanner('${hc.checkedAt}')" aria-label="關閉">✕</button>
+      </div>
+      <ul class="health-alert-list">
+        ${hc.warnings.map(w=>`<li>${w}</li>`).join('')}
+      </ul>
+      <div class="health-alert-note">如果這是預期中的變動可以直接關閉；如果不是，建議檢查 Excel 內容或聯絡協助排查。</div>
+    </div>`;
+}
+
+function dismissHealthBanner(checkedAt){
+  localStorage.setItem(HEALTH_DISMISS_KEY, checkedAt);
+  renderHealthBanner(null);
 }
 
 function saveAll(manual){

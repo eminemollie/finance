@@ -8,6 +8,7 @@ extract_data.py
 執行方式：python3 extract_data.py <xlsx路徑> <輸出json路徑>
 """
 import sys
+import os
 import json
 import datetime
 import openpyxl
@@ -341,13 +342,94 @@ def extract(xlsx_path):
     return result
 
 
+# ════════════════════════════════════════════════════════════
+# 健檢機制：跟「上一次的 data.json」比對，抓出異常的擷取結果
+# ════════════════════════════════════════════════════════════
+def run_health_check(new_data, old_data):
+    """比對新舊資料，找出可疑的異常變化。回傳 warnings 清單（可能為空）。"""
+    warnings = []
+    if old_data is None:
+        return warnings  # 沒有舊資料可比對（第一次執行），略過健檢
+
+    def count(d, key):
+        v = d.get(key)
+        return len(v) if isinstance(v, list) else 0
+
+    def total_expense(d):
+        return sum(x.get('amt', 0) for x in d.get('expense', []) if isinstance(x, dict))
+
+    def total_income_nonfund(d):
+        return sum(x.get('amt', 0) for x in d.get('income', []) if isinstance(x, dict) and not x.get('auto'))
+
+    categories = [
+        ('income', '收入項目'), ('expense', '支出項目'),
+        ('loans', '貸款'), ('insurance', '壽險'),
+        ('batches', '申購批次'), ('hist', '配息紀錄'),
+    ]
+
+    # 檢查1：任何原本有資料的類別，這次變成完全空白
+    for key, label in categories:
+        old_n, new_n = count(old_data, key), count(new_data, key)
+        if old_n > 0 and new_n == 0:
+            warnings.append(f'{label}從{old_n}筆變成0筆，可能是Excel排版被改動導致擷取失敗')
+        elif old_n >= 3 and new_n > 0 and new_n < old_n * 0.5:
+            warnings.append(f'{label}筆數從{old_n}筆大幅減少為{new_n}筆，請確認是否為預期中的變動')
+
+    # 檢查2：關鍵金額出現異常暴增暴減（排除筆數同步增加導致的合理變化）
+    old_exp, new_exp = total_expense(old_data), total_expense(new_data)
+    if old_exp > 0 and new_exp > 0:
+        change = abs(new_exp - old_exp) / old_exp
+        if change > 0.5 and count(old_data, 'expense') == count(new_data, 'expense'):
+            warnings.append(f'支出總額在筆數不變的情況下變動超過50%（{old_exp:,.0f} → {new_exp:,.0f}），請確認')
+
+    old_inc, new_inc = total_income_nonfund(old_data), total_income_nonfund(new_data)
+    if old_inc > 0 and new_inc > 0:
+        change = abs(new_inc - old_inc) / old_inc
+        if change > 0.5:
+            warnings.append(f'非基金收入總額變動超過50%（{old_inc:,.0f} → {new_inc:,.0f}），請確認')
+
+    # 檢查3：基金總投入成本或總單位數異常歸零
+    if old_data.get('totalInvestedTwd', 0) > 0 and new_data.get('totalInvestedTwd', 0) == 0:
+        warnings.append('基金總投入成本變成0，申購批次資料可能擷取失敗')
+    if old_data.get('totalUnits', 0) > 0 and new_data.get('totalUnits', 0) == 0:
+        warnings.append('基金總持有單位數變成0，申購批次資料可能擷取失敗')
+
+    return warnings
+
+
 if __name__ == '__main__':
     xlsx_path = sys.argv[1] if len(sys.argv) > 1 else 'finance_system.xlsx'
     out_path = sys.argv[2] if len(sys.argv) > 2 else 'data.json'
+
+    # 讀取舊版 data.json（若存在）供健檢比對用
+    old_data = None
+    if os.path.exists(out_path):
+        try:
+            with open(out_path, encoding='utf-8') as f:
+                old_data = json.load(f)
+        except Exception as e:
+            print(f'讀取舊版 {out_path} 失敗（略過健檢比對）: {e}')
+
     data = extract(xlsx_path)
+    warnings = run_health_check(data, old_data)
+    data['_healthCheck'] = {
+        'ok': len(warnings) == 0,
+        'warnings': warnings,
+        'checkedAt': data['generatedAt'],
+    }
+
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
     print(f'已輸出 {out_path}')
     print(f"收入項目: {len(data['income'])}, 支出項目: {len(data['expense'])}")
     print(f"貸款: {len(data['loans'])}, 壽險: {len(data['insurance'])}")
     print(f"申購批次: {len(data['batches'])}, 配息紀錄: {len(data['hist'])}")
+
+    if warnings:
+        print('\n⚠️  健檢發現以下可疑異常：')
+        for w in warnings:
+            print(f'  - {w}')
+        print('\n（此警示會顯示在網頁上，但不會中斷同步流程）')
+    else:
+        print('\n✅ 健檢通過，未發現異常')
