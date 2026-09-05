@@ -34,6 +34,7 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .hdr-left .date{font-size:11px;color:var(--muted);margin-top:1px}
 .hdr-right{display:flex;gap:6px}
 .hdr-btn{height:32px;padding:0 12px;font-size:12px;border-radius:8px;border:0.5px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit;-webkit-appearance:none}
+.hdr-btn.icon-only{padding:0 8px}
 .hdr-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .hdr-btn.save{background:var(--text);color:white;border-color:var(--text)}
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:white;font-size:12px;padding:9px 20px;border-radius:22px;z-index:200;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;font-family:'Noto Sans TC',sans-serif}
@@ -146,6 +147,12 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
 .health-alert-list{margin:0 0 8px;padding-left:20px}
 .health-alert-list li{font-size:12px;color:#5c3d00;line-height:1.6;margin-bottom:2px}
 .health-alert-note{font-size:11px;color:#8a6a2f;line-height:1.5}
+.trend-card{margin:0 16px;background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:14px 16px}
+.trend-empty{font-size:12px;color:var(--hint);text-align:center;padding:20px 0}
+.trend-stats{display:flex;justify-content:space-between;margin-bottom:8px;font-size:11px;color:var(--muted)}
+.trend-stats b{font-size:13px;color:var(--text);display:block;margin-top:2px}
+.trend-change-pos{color:var(--green,#085041)}
+.trend-change-neg{color:#712b13}
 .lock-screen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;padding-top:calc(24px + env(safe-area-inset-top));padding-bottom:calc(24px + env(safe-area-inset-bottom))}
 .lock-icon{width:56px;height:56px;border-radius:16px;background:var(--text);display:flex;align-items:center;justify-content:center;margin-bottom:24px}
 .lock-icon svg{width:26px;height:26px;stroke:white;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -185,6 +192,9 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
     <div class="date" id="saved-at" style="color:var(--hint)"></div>
   </div>
   <div class="hdr-right">
+    <button class="hdr-btn icon-only" onclick="exportBackup()" title="匯出備份">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
     <button class="hdr-btn" onclick="showReset()">
       <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>重置
     </button>
@@ -216,6 +226,9 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
   </div>
 
   <div id="net-warns"></div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>淨值趨勢</div>
+  <div id="trend-card" class="trend-card"></div>
 
   <div class="slbl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>市值假設</div>
   <div class="sliders">
@@ -431,13 +444,15 @@ let BATCHES=[
   {no:4,date:'115/08/27',desc:'東區房貸融資598.5萬',nav:74.91,units:2519.381,twd:5985000},
 ];
 
-let incItems, costItems, hist, assets;
+let incItems, costItems, hist, assets, debtOverrides, netWorthHistory;
 
 function clone(x){return JSON.parse(JSON.stringify(x));}
 function resetDef(){
   FX=31.5; RATE=0.11; NAV=74.91; IID=100;
   incItems=clone(DEF_INC); costItems=clone(DEF_COST); hist=clone(DEF_HIST);
   assets=clone(DEF_ASSETS);
+  debtOverrides={};
+  netWorthHistory=[];
 }
 
 function loadData(){
@@ -452,6 +467,8 @@ function loadData(){
     costItems = Array.isArray(d.costItems)?d.costItems:clone(DEF_COST);
     hist = Array.isArray(d.hist)?d.hist:clone(DEF_HIST);
     assets = d.assets||clone(DEF_ASSETS);
+    debtOverrides = d.debtOverrides||{};
+    netWorthHistory = Array.isArray(d.netWorthHistory)?d.netWorthHistory:[];
     IID = typeof d.iid==='number'?d.iid:100;
     return true;
   }catch(e){ resetDef(); return false; }
@@ -548,9 +565,33 @@ function dismissHealthBanner(checkedAt){
   renderHealthBanner(null);
 }
 
+// ════════════════════════════════════════════════════════════
+// 資料備份匯出：把目前完整狀態存成一份 JSON 檔案下載
+// ════════════════════════════════════════════════════════════
+function exportBackup(){
+  const payload={
+    exportedAt:new Date().toISOString(),
+    fx:FX, rate:RATE, nav:NAV,
+    incItems, costItems, hist, assets, debtOverrides, netWorthHistory,
+    iid:IID,
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const dd=new Date();
+  const stamp=`${dd.getFullYear()}${String(dd.getMonth()+1).padStart(2,'0')}${String(dd.getDate()).padStart(2,'0')}`;
+  a.href=url;
+  a.download=`財務備份_${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('備份檔案已下載');
+}
+
 function saveAll(manual){
   try{
-    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID}));
+    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,iid:IID}));
     if(manual) toast('已儲存');
   }catch(e){ toast('儲存失敗'); }
   pushToCloud();
@@ -582,9 +623,11 @@ async function loadFromCloud(){
     costItems = Array.isArray(d.costItems)?d.costItems:costItems;
     hist = Array.isArray(d.hist)?d.hist:hist;
     assets = d.assets||assets;
+    debtOverrides = d.debtOverrides||debtOverrides||{};
+    netWorthHistory = Array.isArray(d.netWorthHistory)?d.netWorthHistory:(netWorthHistory||[]);
     IID = typeof d.iid==='number'?d.iid:IID;
     if(d.excelSyncedAt) localStorage.setItem(SYNC_KEY, d.excelSyncedAt);
-    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID}));
+    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,iid:IID}));
     return true;
   }catch(e){
     console.warn('雲端讀取失敗，使用本機資料', e);
@@ -597,7 +640,7 @@ function pushToCloud(){
   clearTimeout(_cloudPushTimer);
   _cloudPushTimer=setTimeout(async ()=>{
     try{
-      const payload={fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,iid:IID,
+      const payload={fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,iid:IID,
         excelSyncedAt:localStorage.getItem(SYNC_KEY)||''};
       const ciphertext=await encryptForCloud(payload); // 加密後才送出，雲端只存得到亂碼
       const res=await fetch(CLOUD_SYNC_URL+'/data',{
@@ -673,11 +716,88 @@ function totalAssets(){
   const fundMV=UTOT*NAV*FX;
   return fundMV+assets.north_re+assets.east_re+assets.stocks+assets.cash;
 }
+
+// 貸款/壽險餘額手動覆蓋：若使用者輸入了實際餘額（例如銀行對帳單金額），
+// 優先採用覆蓋值，否則使用理論攤還公式計算的結果。
+function getDebtBalance(name, theoretical){
+  const ov=debtOverrides[name];
+  return (typeof ov==='number' && !isNaN(ov)) ? ov : theoretical;
+}
+
 function totalDebt(){
   let sum=0;
-  LOANS.forEach(l=>sum+=remainingBalance(l.principal,l.rate,l.years,l.start));
-  INSURANCE.forEach(ins=>sum+=remainingPremium(ins.premium,ins.years,ins.start));
+  LOANS.forEach(l=>{
+    const theo=remainingBalance(l.principal,l.rate,l.years,l.start);
+    sum+=getDebtBalance(l.name, theo);
+  });
+  INSURANCE.forEach(ins=>{
+    const theo=remainingPremium(ins.premium,ins.years,ins.start);
+    sum+=getDebtBalance(ins.name, theo);
+  });
   return sum;
+}
+
+// ════════════════════════════════════════════════════════════
+// 淨值歷史趨勢：每天最多記錄一筆快照，畫成簡易 SVG 折線圖
+// ════════════════════════════════════════════════════════════
+function todayStr(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function recordNetWorthSnapshot(){
+  const today=todayStr();
+  const nw=totalAssets()-totalDebt();
+  const existing=netWorthHistory.find(x=>x.date===today);
+  if(existing){
+    existing.value=nw; // 同一天多次操作，更新為最新值，不重複新增
+  }else{
+    netWorthHistory.push({date:today, value:nw});
+    netWorthHistory.sort((a,b)=>a.date.localeCompare(b.date));
+    if(netWorthHistory.length>180) netWorthHistory=netWorthHistory.slice(-180); // 最多留180筆
+  }
+}
+
+function renderTrend(){
+  const el=document.getElementById('trend-card');
+  if(!el) return;
+  const pts=netWorthHistory;
+  if(!pts || pts.length<2){
+    el.innerHTML=`<div class="trend-empty">目前只有 ${pts?pts.length:0} 筆紀錄，累積幾天資料後這裡會顯示淨值變化趨勢</div>`;
+    return;
+  }
+  const vals=pts.map(p=>p.value);
+  const min=Math.min(...vals), max=Math.max(...vals);
+  const range=(max-min)||1;
+  const W=328, H=90, PAD=6;
+  const stepX=pts.length>1?(W-PAD*2)/(pts.length-1):0;
+  const coords=pts.map((p,i)=>{
+    const x=PAD+i*stepX;
+    const y=PAD+(1-(p.value-min)/range)*(H-PAD*2);
+    return [x,y];
+  });
+  const pathD=coords.map((c,i)=>(i===0?'M':'L')+c[0].toFixed(1)+','+c[1].toFixed(1)).join(' ');
+  const areaD=pathD+` L${coords[coords.length-1][0].toFixed(1)},${H-PAD} L${coords[0][0].toFixed(1)},${H-PAD} Z`;
+
+  const first=vals[0], last=vals[vals.length-1];
+  const change=last-first;
+  const changeCls=change>=0?'trend-change-pos':'trend-change-neg';
+  const changeSign=change>=0?'+':'−';
+
+  el.innerHTML=`
+    <div class="trend-stats">
+      <div>期間起點<b>$${tw(first)}</b></div>
+      <div style="text-align:right">目前<b class="${changeCls}">$${tw(last)}</b></div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+      <path d="${areaD}" fill="var(--blue-bg)" opacity="0.6"/>
+      <path d="${pathD}" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${coords[coords.length-1][0]}" cy="${coords[coords.length-1][1]}" r="3.5" fill="var(--blue)"/>
+    </svg>
+    <div class="trend-stats" style="margin-top:2px;margin-bottom:0">
+      <div style="color:var(--hint)">${pts[0].date}</div>
+      <div style="text-align:right" class="${changeCls}">${changeSign}$${tw(Math.abs(change))}（${pts.length}筆紀錄）</div>
+    </div>`;
 }
 
 function renderNetWorth(){
@@ -730,26 +850,66 @@ function renderAssets(){
 function updAsset(key,v){
   assets[key]=parseFloat(v)||0;
   renderNetWorth(); document.getElementById('asset-tot').textContent='$'+tw(totalAssets());
+  recordNetWorthSnapshot(); renderTrend();
   debSave();
 }
 
 function renderDebts(){
   const rows=[];
   LOANS.forEach(l=>{
-    const bal=remainingBalance(l.principal,l.rate,l.years,l.start);
+    const theo=remainingBalance(l.principal,l.rate,l.years,l.start);
     const p=paidMonths(l.start);
-    rows.push({name:l.name,sub:`已繳${p}期／原始$${tw(l.principal)}`,val:bal});
+    rows.push({name:l.name,sub:`已繳${p}期／理論$${tw(theo)}`,theo});
   });
   INSURANCE.forEach(ins=>{
-    const bal=remainingPremium(ins.premium,ins.years,ins.start);
+    const theo=remainingPremium(ins.premium,ins.years,ins.start);
     const p=paidMonths(ins.start);
-    rows.push({name:ins.name,sub:`已繳${p}期／總保費$${tw(ins.premium)}`,val:bal});
+    rows.push({name:ins.name,sub:`已繳${p}期／理論$${tw(theo)}`,theo});
   });
   document.getElementById('debt-rows').innerHTML=rows.map((r,i)=>{
     const bg=i%2?' style="background:#fafaf8"':'';
-    return `<div class="al-row"${bg}><span class="al-nm">${r.name}<span class="al-sub">${r.sub}</span></span><span class="autoval">-$${tw(r.val)}</span></div>`;
+    const hasOverride=typeof debtOverrides[r.name]==='number' && !isNaN(debtOverrides[r.name]);
+    const val=getDebtBalance(r.name, r.theo);
+    const safeName=r.name.replace(/'/g,"\\'");
+    return `<div class="al-row"${bg}>
+      <span class="al-nm">${r.name}<span class="al-sub">${r.sub}${hasOverride?'　<span style="color:var(--blue)">●已手動覆蓋</span>':''}</span></span>
+      <div class="iw">
+        <span class="cur">-$</span>
+        <input type="number" value="${Math.round(val)}" min="0" step="1000" oninput="updDebtOverride('${safeName}',this.value)">
+        ${hasOverride?`<button class="dbtn" onclick="clearDebtOverride('${safeName}')" aria-label="恢復自動計算" title="恢復自動計算"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>`:'<span style="width:24px"></span>'}
+      </div>
+    </div>`;
   }).join('');
   document.getElementById('debt-tot').textContent='-$'+tw(totalDebt());
+}
+
+function updDebtOverride(name, v){
+  const theo = getTheoreticalBalance(name);
+  const num = parseFloat(v);
+  // 若使用者輸入的值剛好等於理論值，視為未覆蓋（避免每次都被標記為「已覆蓋」）
+  if(isNaN(num)){
+    delete debtOverrides[name];
+  }else{
+    debtOverrides[name]=num;
+  }
+  renderNetWorth(); renderDebts();
+  recordNetWorthSnapshot(); renderTrend();
+  debSave();
+}
+
+function clearDebtOverride(name){
+  delete debtOverrides[name];
+  renderNetWorth(); renderDebts();
+  recordNetWorthSnapshot(); renderTrend();
+  debSave();
+}
+
+function getTheoreticalBalance(name){
+  const l=LOANS.find(x=>x.name===name);
+  if(l) return remainingBalance(l.principal,l.rate,l.years,l.start);
+  const ins=INSURANCE.find(x=>x.name===name);
+  if(ins) return remainingPremium(ins.premium,ins.years,ins.start);
+  return 0;
 }
 
 function renderBanner(){
@@ -923,7 +1083,7 @@ let _st=null;
 function debSave(){ clearTimeout(_st); _st=setTimeout(()=>saveAll(false),1200); }
 
 function renderAll(){
-  renderNetWorth(); renderAssets(); renderDebts();
+  renderNetWorth(); renderAssets(); renderDebts(); renderTrend();
   renderBanner(); renderKpi(); renderRows(); renderScenes();
   renderBatchTable(); renderHist();
 }
@@ -1077,6 +1237,11 @@ if(!CLOUD_SYNC_URL){
   if(CLOUD_SYNC_URL && _cloudAvailable){
     updateCloudBadge('☁️ 雲端同步已連線');
   }
+
+  // 資料已穩定（雲端/Excel同步都跑完），記錄今天的淨值快照（每天最多一筆）
+  recordNetWorthSnapshot();
+  renderTrend();
+  saveAll(false);
 })();
 }
 </script>
