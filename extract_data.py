@@ -10,8 +10,43 @@ extract_data.py
 import sys
 import os
 import json
+import base64
+import hashlib
 import datetime
 import openpyxl
+
+
+# ════════════════════════════════════════════════════════════
+# 端對端加密：跟網頁端（index_v3.html 的 deriveKey/decryptFromCloud）
+# 使用完全相同的演算法參數，已用真實瀏覽器 Web Crypto API 驗證過
+# 兩邊可以互相解密。密碼只透過 GitHub Secrets 傳入，不會寫進程式碼。
+# ════════════════════════════════════════════════════════════
+_ENC_SALT = b'finance-dashboard-salt-v1'
+
+
+def derive_key(password: str) -> bytes:
+    return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), _ENC_SALT, 100000, dklen=32)
+
+
+def encrypt_json(obj, password: str) -> str:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    key = derive_key(password)
+    aesgcm = AESGCM(key)
+    iv = os.urandom(12)
+    plaintext = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+    ciphertext = aesgcm.encrypt(iv, plaintext, None)
+    combined = iv + ciphertext
+    return base64.b64encode(combined).decode('ascii')
+
+
+def decrypt_json(ciphertext_b64: str, password: str):
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    key = derive_key(password)
+    combined = base64.b64decode(ciphertext_b64)
+    iv, ciphertext = combined[:12], combined[12:]
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(iv, ciphertext, None)
+    return json.loads(plaintext.decode('utf-8'))
 
 
 def col_letter(idx):
@@ -400,13 +435,21 @@ def run_health_check(new_data, old_data):
 if __name__ == '__main__':
     xlsx_path = sys.argv[1] if len(sys.argv) > 1 else 'finance_system.xlsx'
     out_path = sys.argv[2] if len(sys.argv) > 2 else 'data.json'
+    password = os.environ.get('DASHBOARD_PASSWORD')  # 從 GitHub Secrets 傳入，不寫死在程式碼裡
 
-    # 讀取舊版 data.json（若存在）供健檢比對用
+    # 讀取舊版 data.json（若存在）供健檢比對用；若舊檔是加密格式，先解密才能比對
     old_data = None
     if os.path.exists(out_path):
         try:
             with open(out_path, encoding='utf-8') as f:
-                old_data = json.load(f)
+                old_raw = json.load(f)
+            if old_raw.get('encrypted'):
+                if password:
+                    old_data = decrypt_json(old_raw['data'], password)
+                else:
+                    print('舊版 data.json 是加密格式，但未設定 DASHBOARD_PASSWORD，略過健檢比對')
+            else:
+                old_data = old_raw  # 舊版本尚未加密時的相容處理
         except Exception as e:
             print(f'讀取舊版 {out_path} 失敗（略過健檢比對）: {e}')
 
@@ -418,8 +461,20 @@ if __name__ == '__main__':
         'checkedAt': data['generatedAt'],
     }
 
+    if password:
+        ciphertext = encrypt_json(data, password)
+        output = {
+            'generatedAt': data['generatedAt'],  # 保留在加密外層，方便網頁快速判斷是否有新版本
+            'encrypted': True,
+            'data': ciphertext,
+        }
+        print('🔒 已使用密碼加密 data.json 內容')
+    else:
+        output = data
+        print('⚠️  未設定 DASHBOARD_PASSWORD 環境變數，data.json 將以明碼輸出（未加密）')
+
     with open(out_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(output, f, ensure_ascii=False, indent=2)
 
     print(f'已輸出 {out_path}')
     print(f"收入項目: {len(data['income'])}, 支出項目: {len(data['expense'])}")
