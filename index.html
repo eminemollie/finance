@@ -482,13 +482,27 @@ async function syncFromExcel(){
   try{
     const res=await fetch('data.json?t='+Date.now());
     if(!res.ok) return false;
-    const d=await res.json();
+    const raw=await res.json();
+
+    // data.json 若為加密格式，先用密碼衍生的金鑰解密才能取得實際內容
+    let d;
+    if(raw.encrypted){
+      if(!_cryptoKey) return false; // 尚未解鎖，沒有金鑰可用
+      d=await decryptFromCloud(raw.data);
+      if(!d){
+        console.warn('data.json 解密失敗（密碼不符或資料損毀）');
+        return false;
+      }
+    }else{
+      d=raw; // 相容舊版尚未加密的 data.json
+    }
 
     // 健檢機制：檢查這次同步是否有異常警示（不論Excel是否有更新都要檢查一次）
     checkSyncHealth(d);
 
     const lastSynced=localStorage.getItem(SYNC_KEY);
-    if(lastSynced===d.generatedAt) return false; // Excel未更新，沿用目前資料
+    const generatedAt=raw.generatedAt||d.generatedAt;
+    if(lastSynced===generatedAt) return false; // Excel未更新，沿用目前資料
 
     // Excel有新版本：更新所有結構性資料（收支項目、貸款、壽險、批次、歷史配息、假設值）
     if(Array.isArray(d.income)) DEF_INC=d.income.map((x,i)=>({id:i+1,...x}));
@@ -509,7 +523,7 @@ async function syncFromExcel(){
     hist=clone(DEF_HIST); assets=clone(DEF_ASSETS);
     IID=Math.max(100, ...incItems.map(x=>x.id), ...costItems.map(x=>x.id))+1;
 
-    localStorage.setItem(SYNC_KEY, d.generatedAt);
+    localStorage.setItem(SYNC_KEY, generatedAt);
     saveAll(false);
     return true;
   }catch(e){
