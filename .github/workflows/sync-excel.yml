@@ -19,9 +19,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 安裝相依套件
-        run: pip install openpyxl --quiet
+        run: pip install openpyxl cryptography --quiet
 
-      - name: 執行 Excel 轉 JSON
+      - name: 執行 Excel 轉 JSON（並加密）
+        env:
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
         run: python3 extract_data.py "財務管理系統.xlsx" data.json
 
       - name: 移除原始Excel檔案（僅保留data.json，降低repo內敏感資訊曝露）
