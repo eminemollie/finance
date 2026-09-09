@@ -150,6 +150,32 @@ def get_jiayan_remaining(wb):
     return round(buy_total - sell_total)
 
 
+def get_childcare_avg(wb):
+    """從育兒費分頁的原始逐月數字，直接在Python端重新計算近12個月平均本人負擔，
+    不依賴Excel公式快取。只算教育費+醫療費，保費已在信用卡年支出計算過，排除避免重複。"""
+    if '育兒費' not in wb.sheetnames:
+        return None
+    ws = wb['育兒費']
+    months = []
+    mode = None
+    for r in range(1, ws.max_row + 1):
+        a_val = ws.cell(row=r, column=1).value
+        if isinstance(a_val, str) and '逐月明細' in a_val:
+            mode = 'months'; continue
+        if isinstance(a_val, str) and '近12個月平均' in a_val:
+            mode = None; continue
+        if mode == 'months' and isinstance(a_val, str) and '年' in a_val and '月' in a_val:
+            edu = ws.cell(row=r, column=2).value
+            med = ws.cell(row=r, column=4).value
+            edu = edu if isinstance(edu, (int, float)) else 0
+            med = med if isinstance(med, (int, float)) else 0
+            months.append(edu + med)
+    if not months:
+        return None
+    recent = months[-12:] if len(months) >= 12 else months
+    return round(sum(recent) / len(recent) / 2)
+
+
 def extract(xlsx_path):
     # data_only=True 讀取快取值（用於數字），但日期/公式結構仍需從貸款表原始儲存格取得
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
@@ -194,6 +220,12 @@ def extract(xlsx_path):
             # 信用卡費是跨分頁公式，快取可能為空；一律改用信用卡年支出分頁的原始明細重新加總
             cc_total = get_credit_card_total(wb)
             amt = cc_total if cc_total is not None else (round(abs(c)) if isinstance(c, (int, float)) else 0)
+            expense.append({'name': b, 'amt': amt, 'sub': (d or '')[:24]})
+            continue
+        if b == '育兒費(本人負擔)' and section == 'expense':
+            # 同樣是跨分頁公式，快取可能為空；改用育兒費分頁原始明細重新計算
+            cc_avg = get_childcare_avg(wb)
+            amt = cc_avg if cc_avg is not None else (round(abs(c)) if isinstance(c, (int, float)) else 0)
             expense.append({'name': b, 'amt': amt, 'sub': (d or '')[:24]})
             continue
         if not isinstance(c, (int, float)):
@@ -373,6 +405,34 @@ def extract(xlsx_path):
     result['nav'] = nav_val
     result['fx'] = fx_val
     result['assetsDefault'] = assets
+
+    # ── 育兒費：逐月明細 + 近12個月平均（本人負擔，不含已列計的保費）─
+    childcare_months = []
+    if '育兒費' in wb.sheetnames:
+        ws = wb['育兒費']
+        mode = None
+        for r in range(1, ws.max_row + 1):
+            a_val = ws.cell(row=r, column=1).value
+            if isinstance(a_val, str) and '逐月明細' in a_val:
+                mode = 'months'
+                continue
+            if isinstance(a_val, str) and '近12個月平均' in a_val:
+                mode = None
+                continue
+            if mode == 'months' and isinstance(a_val, str) and '年' in a_val and '月' in a_val:
+                edu = ws.cell(row=r, column=2).value
+                ins = ws.cell(row=r, column=3).value
+                med = ws.cell(row=r, column=4).value
+                if isinstance(edu, (int, float)) or isinstance(med, (int, float)):
+                    childcare_months.append({
+                        'month': a_val,
+                        'edu': round(edu) if isinstance(edu, (int, float)) else 0,
+                        'ins': round(ins) if isinstance(ins, (int, float)) else 0,
+                        'med': round(med) if isinstance(med, (int, float)) else 0,
+                    })
+
+    result['childcareMonths'] = childcare_months
+    result['childcareAvg'] = get_childcare_avg(wb)
 
     return result
 

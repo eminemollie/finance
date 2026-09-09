@@ -349,6 +349,12 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
   <div class="footnote">
     總持有單位數 7,747.758（400萬+830萬+600萬三批次累計）／加權平均成本 NAV 74.09
   </div>
+
+  <div class="slbl"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>育兒費歷史（與前妻各半）</div>
+  <div class="hist-outer"><div class="hist-scroll"><table class="ht" id="childcare-tbl"></table></div></div>
+  <div class="footnote">
+    僅列教育費＋醫療費；保費已列於「信用卡年支出」年度固定支出，不重複計算。近12個月平均本人負擔會自動反映到「月收支」的支出項目。
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -394,7 +400,7 @@ let DEF_COST=[
   {id:15,name:'車貸',amt:20892,sub:'140萬 2.35%'},
   {id:16,name:'信貸',amt:5718,sub:'20萬 1.88%'},
   {id:17,name:'個人醫療保險費',amt:3300},
-  {id:18,name:'小孩醫療保險費',amt:0},
+  {id:18,name:'育兒費(本人負擔)',amt:8852,sub:'教育費＋醫療費，與前妻各半均攤，近12個月平均'},
   {id:19,name:'生活費',amt:10000},
   {id:20,name:'管理費',amt:4100},
   {id:21,name:'孝親費',amt:10000},
@@ -442,6 +448,42 @@ let BATCHES=[
   {no:2,date:'115/04/30',desc:'增貸830萬(皇普莊園)',nav:74.81,units:3498.549,twd:8304663},
   {no:3,date:'115/08/25',desc:'自補1.5萬(湊600萬)',nav:74.63,units:6.295,twd:15000},
   {no:4,date:'115/08/27',desc:'東區房貸融資598.5萬',nav:74.91,units:2519.381,twd:5985000},
+];
+
+let CHILDCARE_MONTHS=[
+  {month:'113年01月',edu:25100,ins:0,med:1210},
+  {month:'113年02月',edu:16175,ins:0,med:370},
+  {month:'113年03月',edu:6000,ins:16351,med:1640},
+  {month:'113年04月',edu:6000,ins:8537,med:150},
+  {month:'113年05月',edu:3000,ins:0,med:2350},
+  {month:'113年06月',edu:8360,ins:0,med:1952},
+  {month:'113年07月',edu:16750,ins:21096,med:2890},
+  {month:'113年08月',edu:11850,ins:0,med:950},
+  {month:'113年09月',edu:18616,ins:0,med:0},
+  {month:'113年10月',edu:11440,ins:0,med:950},
+  {month:'113年11月',edu:14162,ins:0,med:500},
+  {month:'113年12月',edu:32430,ins:0,med:750},
+  {month:'114年01月',edu:1636,ins:0,med:550},
+  {month:'114年02月',edu:17654,ins:0,med:1750},
+  {month:'114年03月',edu:13590,ins:24830,med:250},
+  {month:'114年04月',edu:11200,ins:0,med:250},
+  {month:'114年05月',edu:11496,ins:0,med:1320},
+  {month:'114年06月',edu:29250,ins:0,med:400},
+  {month:'114年07月',edu:18510,ins:21050,med:1140},
+  {month:'114年08月',edu:18393,ins:0,med:200},
+  {month:'114年09月',edu:22941,ins:0,med:1050},
+  {month:'114年10月',edu:12090,ins:0,med:850},
+  {month:'114年11月',edu:11640,ins:0,med:1060},
+  {month:'114年12月',edu:14746,ins:0,med:1887},
+  {month:'115年01月',edu:40380,ins:0,med:1350},
+  {month:'115年02月',edu:3165,ins:0,med:0},
+  {month:'115年03月',edu:18404,ins:22629,med:600},
+  {month:'115年04月',edu:10800,ins:0,med:1050},
+  {month:'115年05月',edu:10800,ins:0,med:150},
+  {month:'115年06月',edu:30250,ins:0,med:1270},
+  {month:'115年07月',edu:19130,ins:21054,med:400},
+  {month:'115年08月',edu:20860,ins:0,med:0},
+  {month:'115年09月',edu:11566,ins:0,med:0}
 ];
 
 let incItems, costItems, hist, assets, debtOverrides, netWorthHistory;
@@ -511,6 +553,7 @@ async function syncFromExcel(){
     if(Array.isArray(d.insurance)) INSURANCE=d.insurance;
     if(Array.isArray(d.batches)) BATCHES=d.batches;
     if(Array.isArray(d.hist)) DEF_HIST=d.hist;
+    if(Array.isArray(d.childcareMonths) && d.childcareMonths.length>0) CHILDCARE_MONTHS=d.childcareMonths;
     if(typeof d.totalUnits==='number') UTOT=d.totalUnits;
     if(typeof d.totalInvestedTwd==='number') TOTAL_INVESTED_TWD=d.totalInvestedTwd;
     if(typeof d.assumptions_rate==='number') RATE=d.assumptions_rate;
@@ -1041,6 +1084,31 @@ function renderBatchTable(){
   </tr></thead><tbody>${rows}</tbody>`;
 }
 
+function renderChildcareTable(){
+  const el=document.getElementById('childcare-tbl');
+  if(!el) return;
+  if(!Array.isArray(CHILDCARE_MONTHS) || CHILDCARE_MONTHS.length===0){
+    el.innerHTML='<tbody><tr><td style="padding:12px;color:var(--hint);text-align:center">尚無育兒費歷史資料</td></tr></tbody>';
+    return;
+  }
+  let rows='', sumEdu=0, sumMed=0;
+  CHILDCARE_MONTHS.forEach((m,i)=>{
+    const half=Math.round((m.edu+m.med)/2);
+    sumEdu+=m.edu; sumMed+=m.med;
+    const insNote=m.ins>0?`<span style="color:var(--hint);font-size:10px">（另有保費$${tw(m.ins)}已列年度支出）</span>`:'';
+    rows+=`<tr class="${i%2?'alt':''}">
+      <td class="c">${m.month}</td>
+      <td>$${tw(m.edu)}</td><td>$${tw(m.med)}</td>
+      <td>$${tw(half)}${insNote}</td>
+    </tr>`;
+  });
+  const n=CHILDCARE_MONTHS.length;
+  rows+=`<tr class="sum"><td class="c">合計</td><td>$${tw(sumEdu)}</td><td>$${tw(sumMed)}</td><td>$${tw(Math.round((sumEdu+sumMed)/2))}</td></tr>`;
+  el.innerHTML=`<thead><tr>
+    <th>月份</th><th>教育費</th><th>醫療費</th><th>本人負擔(半)</th>
+  </tr></thead><tbody>${rows}</tbody>`;
+}
+
 function renderHist(){
   let rows='',su=0,st=0,sUd=0;
   hist.forEach((d,i)=>{
@@ -1099,7 +1167,7 @@ function debSave(){ clearTimeout(_st); _st=setTimeout(()=>saveAll(false),1200); 
 function renderAll(){
   renderNetWorth(); renderAssets(); renderDebts(); renderTrend();
   renderBanner(); renderKpi(); renderRows(); renderScenes();
-  renderBatchTable(); renderHist();
+  renderBatchTable(); renderHist(); renderChildcareTable();
 }
 
 document.getElementById('fx2-sl').addEventListener('input',function(){
