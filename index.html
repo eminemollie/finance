@@ -211,6 +211,7 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
   <button class="tab" data-tab="cash" onclick="switchTab('cash')">月收支</button>
   <button class="tab" data-tab="scene" onclick="switchTab('scene')">情境試算</button>
   <button class="tab" data-tab="hist" onclick="switchTab('hist')">配息紀錄</button>
+  <button class="tab" data-tab="childcare" onclick="switchTab('childcare')">育兒費</button>
 </div>
 
 <div class="tabpanel active" id="panel-net">
@@ -349,7 +350,9 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
   <div class="footnote">
     總持有單位數 7,747.758（400萬+830萬+600萬三批次累計）／加權平均成本 NAV 74.09
   </div>
+</div>
 
+<div class="tabpanel" id="panel-childcare">
   <div class="slbl"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>育兒費歷史（與前妻各半）</div>
   <div class="hist-outer"><div class="hist-scroll"><table class="ht" id="childcare-tbl"></table></div></div>
   <div class="footnote">
