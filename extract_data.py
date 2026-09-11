@@ -67,32 +67,6 @@ def to_iso_date(v):
     return None
 
 
-def get_jiayan_remaining(wb):
-    """直接從股票投資分頁的買入/賣出原始記錄重新計算剩餘金額，不依賴任何公式快取"""
-    try:
-        ws = wb['股票投資']
-    except KeyError:
-        return None
-    buy_total, sell_total = 0, 0
-    mode = None
-    for r in range(1, ws.max_row + 1):
-        a = ws.cell(row=r, column=1).value
-        c = ws.cell(row=r, column=3).value
-        if a == '買入記錄':
-            mode = 'buy'; continue
-        if a == '賣出記錄':
-            mode = 'sell'; continue
-        if isinstance(a, str) and ('小結' in a or '共投入' in a or '共收入' in a):
-            mode = None; continue
-        if mode == 'buy' and isinstance(a, int) and isinstance(c, (int, float)):
-            buy_total += c
-        if mode == 'sell' and isinstance(a, int) and isinstance(c, (int, float)):
-            sell_total += c
-    if buy_total == 0 and sell_total == 0:
-        return None
-    return round(buy_total - sell_total)
-
-
 def get_credit_card_total(wb):
     """直接加總信用卡年支出分頁「信用卡明細」區塊的原始消費金額，
     完全不依賴任何公式快取。掃描範圍僅限信用卡明細（固定+非固定）兩個表格，
