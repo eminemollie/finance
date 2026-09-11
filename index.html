@@ -375,7 +375,7 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
   <div class="slbl"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>育兒費歷史（與前妻各半）</div>
   <div class="hist-outer"><div class="hist-scroll"><table class="ht" id="childcare-tbl"></table></div></div>
   <div class="footnote">
-    僅列教育費＋醫療費；保費已列於「信用卡年支出」年度固定支出，不重複計算。近12個月平均本人負擔會自動反映到「月收支」的支出項目。
+    教育費＋保險費＋醫療費，保費實際由每月現金流支付，已併入本人負擔計算。近12個月平均本人負擔會自動反映到「月收支」的支出項目。
   </div>
 </div>
 
@@ -422,7 +422,7 @@ let DEF_COST=[
   {id:15,name:'車貸',amt:20892,sub:'140萬 2.35%'},
   {id:16,name:'信貸',amt:5718,sub:'20萬 1.88%'},
   {id:17,name:'個人醫療保險費',amt:3300},
-  {id:18,name:'育兒費(本人負擔)',amt:8852,sub:'教育費＋醫療費，與前妻各半均攤，近12個月平均'},
+  {id:18,name:'育兒費(本人負擔)',amt:8852,sub:'教育費＋保險費＋醫療費，與前妻各半均攤，近12個月平均'},
   {id:19,name:'生活費',amt:10000},
   {id:20,name:'管理費',amt:4100},
   {id:21,name:'孝親費',amt:10000},
@@ -1197,21 +1197,20 @@ function renderChildcareTable(){
     el.innerHTML='<tbody><tr><td style="padding:12px;color:var(--hint);text-align:center">尚無育兒費歷史資料</td></tr></tbody>';
     return;
   }
-  let rows='', sumEdu=0, sumMed=0;
+  let rows='', sumEdu=0, sumIns=0, sumMed=0;
   CHILDCARE_MONTHS.forEach((m,i)=>{
-    const half=Math.round((m.edu+m.med)/2);
-    sumEdu+=m.edu; sumMed+=m.med;
-    const insNote=m.ins>0?`<span style="color:var(--hint);font-size:10px">（另有保費$${tw(m.ins)}已列年度支出）</span>`:'';
+    const half=Math.round((m.edu+m.ins+m.med)/2);
+    sumEdu+=m.edu; sumIns+=m.ins; sumMed+=m.med;
     rows+=`<tr class="${i%2?'alt':''}">
       <td class="c">${m.month}</td>
-      <td>$${tw(m.edu)}</td><td>$${tw(m.med)}</td>
-      <td>$${tw(half)}${insNote}</td>
+      <td>$${tw(m.edu)}</td><td>$${tw(m.ins)}</td><td>$${tw(m.med)}</td>
+      <td>$${tw(half)}</td>
     </tr>`;
   });
   const n=CHILDCARE_MONTHS.length;
-  rows+=`<tr class="sum"><td class="c">合計</td><td>$${tw(sumEdu)}</td><td>$${tw(sumMed)}</td><td>$${tw(Math.round((sumEdu+sumMed)/2))}</td></tr>`;
+  rows+=`<tr class="sum"><td class="c">合計</td><td>$${tw(sumEdu)}</td><td>$${tw(sumIns)}</td><td>$${tw(sumMed)}</td><td>$${tw(Math.round((sumEdu+sumIns+sumMed)/2))}</td></tr>`;
   el.innerHTML=`<thead><tr>
-    <th>月份</th><th>教育費</th><th>醫療費</th><th>本人負擔(半)</th>
+    <th>月份</th><th>教育費</th><th>保險費</th><th>醫療費</th><th>本人負擔(半)</th>
   </tr></thead><tbody>${rows}</tbody>`;
 }
 

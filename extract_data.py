@@ -96,20 +96,22 @@ def get_jiayan_remaining(wb):
 def get_credit_card_total(wb):
     """直接加總信用卡年支出分頁「信用卡明細」區塊的原始消費金額，
     完全不依賴任何公式快取。掃描範圍僅限信用卡明細（固定+非固定）兩個表格，
-    遇到「每年龐大固定支出」區塊即停止，避免誤算年度稅費/保費。"""
+    遇到小計/總計列或「每年龐大固定支出」區塊即停止，避免把小計/總計跟個別項目重複加總。"""
     try:
         ws = wb['信用卡年支出']
     except KeyError:
         return None
     total = 0
     in_cc_section = False
+    _stop_markers = ('每年龐大固定支出', '龐大固定支出', '各卡消費金額合計', '信用卡費總計')
     for r in range(1, ws.max_row + 1):
         a_val = ws.cell(row=r, column=1).value
+        b_val = ws.cell(row=r, column=2).value
         if isinstance(a_val, str) and '信用卡明細' in a_val:
             in_cc_section = True
             continue
-        if isinstance(a_val, str) and ('每年龐大固定支出' in a_val or '龐大固定支出' in a_val):
-            break  # 信用卡區塊結束，停止掃描
+        if any(isinstance(v, str) and marker in v for v in (a_val, b_val) for marker in _stop_markers):
+            break  # 信用卡區塊的小計/總計列，或整個信用卡區塊結束，停止掃描
         if not in_cc_section:
             continue
         for c in range(3, 8):  # C~G 欄：玉山/聯邦/中信/國泰/台新
@@ -178,9 +180,10 @@ def get_recent_fund_dividend_avg(wb):
 
 def get_childcare_avg(wb):
     """從育兒費分頁的「明細清單」（K:N欄）原始逐筆資料，直接在Python端依年月分組，
-    重新計算近12個月平均本人負擔，不依賴Excel公式快取。只算教育費+醫療費，
-    保費已在信用卡年支出計算過，排除避免重複。也不採用「月彙總」欄位，因為該欄位對
-    未來尚未發生的月份也會用SUMIFS算出0（不是空白），直接抓會把零值月份混入平均。"""
+    重新計算近12個月平均本人負擔，不依賴Excel公式快取。教育費+醫療費+保險費都算，
+    保費實際由每月現金流支付（不是從年終獎金另外撥款），併入計算才能真實反映月支出。
+    不採用「月彙總」欄位，因為該欄位對未來尚未發生的月份也會用SUMIFS算出0（不是空白），
+    直接抓會把零值月份混入平均。"""
     if '育兒費' not in wb.sheetnames:
         return None
     ws = wb['育兒費']
@@ -189,7 +192,7 @@ def get_childcare_avg(wb):
         month_val = ws.cell(row=r, column=11).value  # K: 年月
         cat_val = ws.cell(row=r, column=12).value     # L: 類別
         amt_val = ws.cell(row=r, column=13).value     # M: 金額
-        if not isinstance(month_val, str) or cat_val not in ('教育費', '醫療費'):
+        if not isinstance(month_val, str) or cat_val not in ('教育費', '醫療費', '保險費'):
             continue
         if not isinstance(amt_val, (int, float)):
             continue
