@@ -150,30 +150,57 @@ def get_jiayan_remaining(wb):
     return round(buy_total - sell_total)
 
 
-def get_childcare_avg(wb):
-    """從育兒費分頁的原始逐月數字，直接在Python端重新計算近12個月平均本人負擔，
-    不依賴Excel公式快取。只算教育費+醫療費，保費已在信用卡年支出計算過，排除避免重複。"""
-    if '育兒費' not in wb.sheetnames:
+def get_recent_fund_dividend_avg(wb):
+    """從基金配息紀錄分頁的原始逐月實收台幣，直接在Python端重新計算最近3個月平均，
+    不依賴Excel公式快取（跟收支明細裡的AVERAGE(OFFSET(...))公式邏輯一致）。"""
+    if '基金配息紀錄' not in wb.sheetnames:
         return None
-    ws = wb['育兒費']
-    months = []
+    ws = wb['基金配息紀錄']
+    monthly_twd = []
     mode = None
     for r in range(1, ws.max_row + 1):
         a_val = ws.cell(row=r, column=1).value
-        if isinstance(a_val, str) and '逐月明細' in a_val:
-            mode = 'months'; continue
-        if isinstance(a_val, str) and '近12個月平均' in a_val:
-            mode = None; continue
-        if mode == 'months' and isinstance(a_val, str) and '年' in a_val and '月' in a_val:
-            edu = ws.cell(row=r, column=2).value
-            med = ws.cell(row=r, column=4).value
-            edu = edu if isinstance(edu, (int, float)) else 0
-            med = med if isinstance(med, (int, float)) else 0
-            months.append(edu + med)
-    if not months:
+        b_val = ws.cell(row=r, column=2).value
+        if a_val == '年度' and b_val == '月份':
+            mode = 'hist'
+            continue
+        if mode == 'hist':
+            f_val = ws.cell(row=r, column=6).value  # F: 實收台幣
+            if isinstance(f_val, (int, float)):
+                monthly_twd.append(f_val)
+            if a_val == '統計摘要':
+                mode = None
+    if not monthly_twd:
         return None
-    recent = months[-12:] if len(months) >= 12 else months
-    return round(sum(recent) / len(recent) / 2)
+    recent = monthly_twd[-3:] if len(monthly_twd) >= 3 else monthly_twd
+    return round(sum(recent) / len(recent))
+
+
+def get_childcare_avg(wb):
+    """從育兒費分頁的「明細清單」（K:N欄）原始逐筆資料，直接在Python端依年月分組，
+    重新計算近12個月平均本人負擔，不依賴Excel公式快取。只算教育費+醫療費，
+    保費已在信用卡年支出計算過，排除避免重複。也不採用「月彙總」欄位，因為該欄位對
+    未來尚未發生的月份也會用SUMIFS算出0（不是空白），直接抓會把零值月份混入平均。"""
+    if '育兒費' not in wb.sheetnames:
+        return None
+    ws = wb['育兒費']
+    month_totals = {}
+    for r in range(1, ws.max_row + 1):
+        month_val = ws.cell(row=r, column=11).value  # K: 年月
+        cat_val = ws.cell(row=r, column=12).value     # L: 類別
+        amt_val = ws.cell(row=r, column=13).value     # M: 金額
+        if not isinstance(month_val, str) or cat_val not in ('教育費', '醫療費'):
+            continue
+        if not isinstance(amt_val, (int, float)):
+            continue
+        month_totals[month_val] = month_totals.get(month_val, 0) + amt_val
+    if not month_totals:
+        return None
+    # "113年01月"這種固定寬度格式，字串排序等同時間順序
+    sorted_months = sorted(month_totals.keys())
+    recent = sorted_months[-12:] if len(sorted_months) >= 12 else sorted_months
+    total = sum(month_totals[m] for m in recent)
+    return round(total / len(recent) / 2)
 
 
 def extract(xlsx_path):
@@ -208,10 +235,10 @@ def extract(xlsx_path):
         b = ws.cell(row=r, column=2).value
         c = ws.cell(row=r, column=3).value
         d = ws.cell(row=r, column=4).value
-        if isinstance(a, str) and '收入' in a and '合計' not in a:
+        if isinstance(a, str) and a.startswith('💰') and '收入' in a:
             section = 'income'
             continue
-        if isinstance(a, str) and '支出' in a and '合計' not in a:
+        if isinstance(a, str) and a.startswith('💸') and '支出' in a:
             section = 'expense'
             continue
         if b in ('項目', None, ''):
@@ -229,14 +256,20 @@ def extract(xlsx_path):
             expense.append({'name': b, 'amt': amt, 'sub': (d or '')[:24]})
             continue
         if not isinstance(c, (int, float)):
-            continue
+            if section == 'income' and str(b) == '基金配息(近3個月實際平均)':
+                pass  # 基金配息收入是公式，快取可能為空，下面用獨立函式重新計算，這裡先不跳過
+            else:
+                continue
         if section == 'income':
-            is_fund = '基金配息' in str(b)
-            if not is_fund:
+            is_fund = str(b) == '基金配息(近3個月實際平均)'
+            if is_fund:
+                fund_avg = get_recent_fund_dividend_avg(wb)
+                amt = fund_avg if fund_avg is not None else (round(c) if isinstance(c, (int, float)) else 0)
+                income.append({'name': b, 'amt': amt, 'auto': False})
+            else:
                 income.append({'name': b, 'amt': round(c), 'auto': False})
         elif section == 'expense':
             expense.append({'name': b, 'amt': round(abs(c)), 'sub': (d or '')[:24]})
-    income.append({'name': '基金配息(估)', 'amt': 0, 'auto': True})
 
     result['assumptions_rate'] = rate
     result['income'] = income
@@ -311,10 +344,10 @@ def extract(xlsx_path):
             mode = 'batch'
             continue
         if mode == 'batch' and isinstance(a, int):
-            desc = ws.cell(row=r, column=3).value
-            nav = ws.cell(row=r, column=4).value
-            units = ws.cell(row=r, column=5).value
-            twd = ws.cell(row=r, column=6).value
+            nav = ws.cell(row=r, column=3).value    # C: 購買點位(NAV,USD)
+            units = ws.cell(row=r, column=4).value  # D: 申購單位數
+            twd = ws.cell(row=r, column=6).value    # F: 單筆申購金額(TWD)
+            desc = ws.cell(row=r, column=10).value  # J: 說明
             if isinstance(units, (int, float)):
                 batches.append({
                     'no': a, 'date': str(b), 'desc': desc,
@@ -407,29 +440,30 @@ def extract(xlsx_path):
     result['assetsDefault'] = assets
 
     # ── 育兒費：逐月明細 + 近12個月平均（本人負擔，不含已列計的保費）─
+    # 直接從「明細清單」(K:N欄)原始逐筆資料在Python端依年月+類別分組重新加總，
+    # 不讀「月彙總」B:D欄，因為那幾欄現在是SUMIFS公式，快取可能為空
     childcare_months = []
     if '育兒費' in wb.sheetnames:
         ws = wb['育兒費']
-        mode = None
+        month_data = {}  # {年月: {'edu':.., 'ins':.., 'med':..}}
+        month_order = []
         for r in range(1, ws.max_row + 1):
-            a_val = ws.cell(row=r, column=1).value
-            if isinstance(a_val, str) and '逐月明細' in a_val:
-                mode = 'months'
+            month_val = ws.cell(row=r, column=11).value  # K: 年月
+            cat_val = ws.cell(row=r, column=12).value     # L: 類別
+            amt_val = ws.cell(row=r, column=13).value     # M: 金額
+            if not isinstance(month_val, str) or cat_val not in ('教育費', '保險費', '醫療費'):
                 continue
-            if isinstance(a_val, str) and '近12個月平均' in a_val:
-                mode = None
+            if not isinstance(amt_val, (int, float)):
                 continue
-            if mode == 'months' and isinstance(a_val, str) and '年' in a_val and '月' in a_val:
-                edu = ws.cell(row=r, column=2).value
-                ins = ws.cell(row=r, column=3).value
-                med = ws.cell(row=r, column=4).value
-                if isinstance(edu, (int, float)) or isinstance(med, (int, float)):
-                    childcare_months.append({
-                        'month': a_val,
-                        'edu': round(edu) if isinstance(edu, (int, float)) else 0,
-                        'ins': round(ins) if isinstance(ins, (int, float)) else 0,
-                        'med': round(med) if isinstance(med, (int, float)) else 0,
-                    })
+            if month_val not in month_data:
+                month_data[month_val] = {'edu': 0, 'ins': 0, 'med': 0}
+                month_order.append(month_val)
+            key = {'教育費': 'edu', '保險費': 'ins', '醫療費': 'med'}[cat_val]
+            month_data[month_val][key] += amt_val
+        # 依年月字串排序（固定寬度格式，字串排序等同時間順序）
+        for m in sorted(month_order):
+            v = month_data[m]
+            childcare_months.append({'month': m, 'edu': round(v['edu']), 'ins': round(v['ins']), 'med': round(v['med'])})
 
     result['childcareMonths'] = childcare_months
     result['childcareAvg'] = get_childcare_avg(wb)
