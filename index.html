@@ -96,6 +96,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 .scene-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px}
 .sc{border-radius:12px;padding:14px;border:0.5px solid transparent}
 .sc.mid{border-width:2px;border-color:var(--blue-bg)}
+.runway{margin:0 16px;border-radius:14px;padding:18px;text-align:center}
+.runway .months{font-size:34px;font-weight:700;line-height:1.2}
+.runway .sub{font-size:12px;margin-top:6px;opacity:.85}
 .sc .tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;display:inline-block;margin-bottom:6px}
 .sc .nm{font-size:12px;font-weight:500;margin-bottom:3px}
 .sc .inf{font-size:10px;opacity:.7;margin-bottom:6px;line-height:1.4}
@@ -324,11 +327,27 @@ table.ht tr.sum td{background:var(--bg);font-weight:500}
 </div>
 
 <div class="tabpanel" id="panel-scene">
-  <div class="slbl"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>五種配息率情境</div>
+  <div class="slbl"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>配息率情境（假設性探索）</div>
   <div class="scene-grid" id="scenes"></div>
   <div class="footnote">
-    以「預估年化配息率」為變數，模擬不同配息水準下的月淨結餘。基準情境固定為 11%。
+    以「假設年化配息率」為變數，探索不同配息水準下的月淨結餘；不影響月收支頁實際採用的「近3個月實際平均」。基準情境固定為 11%。
   </div>
+
+  <div class="slbl" style="margin-top:18px"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.1-2.8-2.8L7 14"/></svg>基金淨值下跌情境</div>
+  <div class="scene-grid" id="scenes-nav"></div>
+  <div class="footnote">模擬基金NAV下跌時，對總資產與淨值的衝擊（其他資產、負債不變）。</div>
+
+  <div class="slbl" style="margin-top:18px"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>升息情境</div>
+  <div class="scene-grid" id="scenes-rate"></div>
+  <div class="footnote">以現有貸款餘額、剩餘年限重新試算，估計利率上升後每月增加的還款負擔（不含車貸/信貸之外的其他變動）。</div>
+
+  <div class="slbl" style="margin-top:18px"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>配息驟減情境</div>
+  <div class="scene-grid" id="scenes-divcut"></div>
+  <div class="footnote">以目前「近3個月實際平均」配息為基準，模擬實際配息大幅縮水時的月淨結餘變化。</div>
+
+  <div class="slbl" style="margin-top:18px"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>斷炊情境（收入中斷可撐幾個月）</div>
+  <div id="runway-card"></div>
+  <div class="footnote">以「現金＋基金市值（視為可贖回）」除以「目前月支出總額」估算緊急預備金可支撐的月數，僅供參考，實際贖回基金可能有稅費或時間成本。</div>
 </div>
 
 <div class="tabpanel" id="panel-hist">
@@ -392,7 +411,7 @@ let DEF_INC=[
   {id:1,name:'月薪',amt:66378,auto:false},
   {id:2,name:'加班費',amt:8000,auto:false},
   {id:3,name:'危勞津貼',amt:0,auto:false},
-  {id:4,name:'基金配息(估)',amt:0,auto:true},
+  {id:4,name:'基金配息(近3個月實際平均)',amt:115177,auto:false},
 ];
 let DEF_COST=[
   {id:10,name:'【北區】原房貸',amt:32400,sub:'803萬 2.66%'},
@@ -1050,9 +1069,23 @@ function addItem(t){
   renderAll(); debSave();
 }
 
+function findFundIncItem(){
+  return incItems.find(x=>x.name && x.name.indexOf('基金配息')>=0);
+}
+function pmt(principal, annualRate, months){
+  if(months<=0) return 0;
+  const r=annualRate/12;
+  if(r===0) return principal/months;
+  return principal*r/(1-Math.pow(1+r,-months));
+}
+const ncPct=p=>p<0.05?{bg:'#e1f5ee',tc:'#085041',lbl:'輕微'}:p<0.15?{bg:'#faeeda',tc:'#633806',lbl:'中度'}:{bg:'#faece7',tc:'#712b13',lbl:'嚴重'};
+
 function renderScenes(){
   const cost=tCost();
-  const nonAuto=incItems.filter(x=>!x.auto).reduce((s,x)=>s+x.amt,0);
+  const fundItem=findFundIncItem();
+  const realFundAmt=fundItem?fundItem.amt:0;
+  // 排除掉基金配息本身，只留月薪/加班費/危勞津貼等穩定收入，避免跟下面假設配息重複計算
+  const baseExFund=tInc()-realFundAmt;
   const defs=[
     {name:'極端悲觀',rate:0.06},
     {name:'悲觀',rate:0.085},
@@ -1062,15 +1095,85 @@ function renderScenes(){
   ];
   document.getElementById('scenes').innerHTML=defs.map(d=>{
     const fund=TOTAL_INVESTED_TWD*d.rate/12;
-    const n=nonAuto+fund-cost, c=nc(n);
+    const n=baseExFund+fund-cost, c=nc(n);
     return `<div class="sc${d.mid?' mid':''}" style="background:${c.bg}">
       <div class="tag" style="background:${c.bg};color:${c.tc};border:0.5px solid ${c.tc}50">${(d.rate*100).toFixed(1)}%</div>
       <div class="nm" style="color:${c.tc}">${d.name}</div>
-      <div class="inf" style="color:${c.tc}">預估配息 $${tw(fund)}</div>
+      <div class="inf" style="color:${c.tc}">假設配息 $${tw(fund)}</div>
       <div class="net" style="color:${c.tc}">${n>=0?'+ ':'− '}$${tw(Math.abs(n))}</div>
       <span class="pill" style="background:white;color:${c.tc}">${c.lbl}</span>
     </div>`;
   }).join('');
+
+  // ── 基金淨值下跌情境：影響資產面(淨值)，用「淨值損失佔比」上色，
+  //    跟月現金流用的nc()門檻(以千為單位)不同尺度，不能共用 ──
+  const curFundMV=UTOT*NAV*FX;
+  const otherAssets=assets.north_re+assets.east_re+assets.stocks+assets.cash;
+  const debt=totalDebt();
+  const curNW=curFundMV+otherAssets-debt;
+  const navDefs=[{name:'下跌15%',drop:0.15},{name:'下跌20%',drop:0.20},{name:'下跌30%',drop:0.30}];
+  document.getElementById('scenes-nav').innerHTML=navDefs.map(d=>{
+    const newFundMV=curFundMV*(1-d.drop);
+    const newNW=newFundMV+otherAssets-debt;
+    const delta=newNW-curNW;
+    const pctOfNW=curNW>0?Math.abs(delta)/curNW:0;
+    const c=ncPct(pctOfNW);
+    return `<div class="sc" style="background:${c.bg}">
+      <div class="tag" style="background:${c.bg};color:${c.tc};border:0.5px solid ${c.tc}50">-${(d.drop*100).toFixed(0)}%</div>
+      <div class="nm" style="color:${c.tc}">${d.name}</div>
+      <div class="inf" style="color:${c.tc}">淨值剩 $${tw(newNW)}</div>
+      <div class="net" style="color:${c.tc}">− $${tw(Math.abs(delta))}</div>
+      <span class="pill" style="background:white;color:${c.tc}">${c.lbl}</span>
+    </div>`;
+  }).join('');
+
+  // ── 升息情境：以現有各筆貸款餘額/剩餘年限重新試算月付金，加總增加金額 ──
+  const baseNet=tInc()-cost;
+  const rateDefs=[{name:'升息0.5%',hike:0.005},{name:'升息1.0%',hike:0.01}];
+  document.getElementById('scenes-rate').innerHTML=rateDefs.map(d=>{
+    let extra=0;
+    LOANS.forEach(l=>{
+      const theo=remainingBalance(l.principal,l.rate,l.years,l.start);
+      const bal=getDebtBalance(l.name,theo);
+      const remMonths=Math.max(1,l.years*12-monthsBetween(l.start,new Date()));
+      extra+=pmt(bal,l.rate+d.hike,remMonths)-pmt(bal,l.rate,remMonths);
+    });
+    const newNet=baseNet-extra, c=nc(newNet);
+    return `<div class="sc" style="background:${c.bg}">
+      <div class="tag" style="background:${c.bg};color:${c.tc};border:0.5px solid ${c.tc}50">+${(d.hike*100).toFixed(1)}%</div>
+      <div class="nm" style="color:${c.tc}">${d.name}</div>
+      <div class="inf" style="color:${c.tc}">每月增加 $${tw(extra)}</div>
+      <div class="net" style="color:${c.tc}">${newNet>=0?'+ ':'− '}$${tw(Math.abs(newNet))}</div>
+      <span class="pill" style="background:white;color:${c.tc}">${c.lbl}</span>
+    </div>`;
+  }).join('');
+
+  // ── 配息驟減情境：以目前近3個月實際平均配息為基準 ──
+  const cutDefs=[{name:'配息-30%',cut:0.3},{name:'配息-50%',cut:0.5}];
+  document.getElementById('scenes-divcut').innerHTML=cutDefs.map(d=>{
+    const newFund=realFundAmt*(1-d.cut);
+    const n=baseExFund+newFund-cost, c=nc(n);
+    return `<div class="sc" style="background:${c.bg}">
+      <div class="tag" style="background:${c.bg};color:${c.tc};border:0.5px solid ${c.tc}50">-${(d.cut*100).toFixed(0)}%</div>
+      <div class="nm" style="color:${c.tc}">${d.name}</div>
+      <div class="inf" style="color:${c.tc}">配息剩 $${tw(newFund)}</div>
+      <div class="net" style="color:${c.tc}">${n>=0?'+ ':'− '}$${tw(Math.abs(n))}</div>
+      <span class="pill" style="background:white;color:${c.tc}">${c.lbl}</span>
+    </div>`;
+  }).join('');
+
+  // ── 斷炊情境：現金+基金市值(視為可贖回) ÷ 月支出 ──
+  const liquid=assets.cash+curFundMV;
+  const months=cost>0?liquid/cost:Infinity;
+  let rbg='#e1f5ee', rtc='#085041';
+  if(months<6){rbg='#faece7';rtc='#712b13';}
+  else if(months<12){rbg='#faeeda';rtc='#633806';}
+  const displayMonths=isFinite(months)?months.toFixed(1):'∞';
+  document.getElementById('runway-card').innerHTML=`
+    <div class="runway" style="background:${rbg};color:${rtc}">
+      <div class="months">${displayMonths} 個月</div>
+      <div class="sub">現金 $${tw(assets.cash)} ＋ 基金市值 $${tw(curFundMV)}　÷　月支出 $${tw(cost)}</div>
+    </div>`;
 }
 
 function renderBatchTable(){
