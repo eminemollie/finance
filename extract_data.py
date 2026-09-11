@@ -488,7 +488,16 @@ def run_health_check(new_data, old_data):
         return sum(x.get('amt', 0) for x in d.get('expense', []) if isinstance(x, dict))
 
     def total_income_nonfund(d):
-        return sum(x.get('amt', 0) for x in d.get('income', []) if isinstance(x, dict) and not x.get('auto'))
+        # 「基金配息(近3個月實際平均)」用精確名稱比對排除，這筆本來就會隨新增申購、
+        # 實際配息表現自然波動，不適合跟月薪這種穩定收入用同一個門檻比對
+        return sum(x.get('amt', 0) for x in d.get('income', [])
+                   if isinstance(x, dict) and x.get('name') != '基金配息(近3個月實際平均)')
+
+    def fund_income(d):
+        for x in d.get('income', []):
+            if isinstance(x, dict) and x.get('name') == '基金配息(近3個月實際平均)':
+                return x.get('amt', 0)
+        return None
 
     categories = [
         ('income', '收入項目'), ('expense', '支出項目'),
@@ -515,7 +524,16 @@ def run_health_check(new_data, old_data):
     if old_inc > 0 and new_inc > 0:
         change = abs(new_inc - old_inc) / old_inc
         if change > 0.5:
-            warnings.append(f'非基金收入總額變動超過50%（{old_inc:,.0f} → {new_inc:,.0f}），請確認')
+            warnings.append(f'非基金收入總額（月薪/加班費等）變動超過50%（{old_inc:,.0f} → {new_inc:,.0f}），請確認')
+
+    old_fund_inc, new_fund_inc = fund_income(old_data), fund_income(new_data)
+    if old_fund_inc is not None and new_fund_inc is not None:
+        if old_fund_inc > 0 and new_fund_inc == 0:
+            warnings.append('基金配息(近3個月實際平均)歸零，可能是「月配息追蹤紀錄」資料擷取失敗')
+        elif old_fund_inc > 0:
+            change = abs(new_fund_inc - old_fund_inc) / old_fund_inc
+            if change > 1.0:
+                warnings.append(f'基金配息(近3個月實際平均)變動超過100%（{old_fund_inc:,.0f} → {new_fund_inc:,.0f}），此項目本來就會隨新增申購或實際配息表現波動，如果是預期中的變動可忽略')
 
     # 檢查3：基金總投入成本或總單位數異常歸零
     if old_data.get('totalInvestedTwd', 0) > 0 and new_data.get('totalInvestedTwd', 0) == 0:
