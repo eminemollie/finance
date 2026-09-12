@@ -1179,10 +1179,12 @@ function renderScenes(){
 function renderBatchTable(){
   let rows='';
   BATCHES.forEach((b,i)=>{
+    const navTxt = (typeof b.nav==='number') ? `$${b.nav.toFixed(2)}` : '待確認';
+    const unitsTxt = (typeof b.units==='number') ? b.units.toFixed(3) : '待確認';
     rows+=`<tr class="${i%2?'alt':''}">
       <td class="c">${b.no}</td><td class="c">${b.date}</td>
       <td style="text-align:left">${b.desc}</td>
-      <td>$${b.nav.toFixed(2)}</td><td>${b.units.toFixed(3)}</td><td>$${tw(b.twd)}</td>
+      <td>${navTxt}</td><td>${unitsTxt}</td><td>$${tw(b.twd)}</td>
     </tr>`;
   });
   document.getElementById('batch-tbl').innerHTML=`<thead><tr>

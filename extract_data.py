@@ -325,23 +325,27 @@ def extract(xlsx_path):
             units = ws.cell(row=r, column=4).value  # D: 申購單位數
             twd = ws.cell(row=r, column=6).value    # F: 單筆申購金額(TWD)
             desc = ws.cell(row=r, column=10).value  # J: 說明
-            if isinstance(units, (int, float)):
+            if isinstance(twd, (int, float)) and twd > 0:
                 batches.append({
                     'no': a, 'date': str(b), 'desc': desc,
-                    'nav': nav, 'units': units, 'twd': round(twd) if twd else 0,
+                    'nav': nav if isinstance(nav, (int, float)) else None,
+                    'units': units if isinstance(units, (int, float)) else None,
+                    'twd': round(twd),
                 })
         if a == '目前部位小結':
             mode = None
 
-    total_units = sum(x['units'] for x in batches)
+    total_units = sum(x['units'] for x in batches if x['units'] is not None)
     total_twd = sum(x['twd'] for x in batches)
 
     # 建立「累計單位數 -> 累計投入台幣」對照表，供月配息紀錄比對使用
     # 這樣即使 Excel 快取遺失（H欄公式結果讀不到），也能在 Python 端重新推算 cost，不依賴快取
+    # 若某筆申購單位數尚未確定（券商未回報），視為不增加單位數但仍計入投入金額，跟Excel公式邏輯一致
     cum_units, cum_twd = 0.0, 0
     tier_table = []
     for batch in batches:
-        cum_units += batch['units']
+        if batch['units'] is not None:
+            cum_units += batch['units']
         cum_twd += batch['twd']
         tier_table.append((round(cum_units, 3), cum_twd))
 
