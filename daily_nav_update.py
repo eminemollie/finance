@@ -32,7 +32,7 @@ import extract_data as ed
 
 MONEYDJ_URL = 'https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=jfzn3'  # JPM多重收益(美元對沖)-A股(穩定月配)
 BOT_CSV_URL = 'https://rate.bot.com.tw/xrt/flcsv/0/day'  # 台灣銀行牌告匯率CSV（輕量端點，主要來源）
-FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'  # 歐洲央行每日參考匯率（公開API，備援來源）
+FRANKFURTER_URL = 'https://api.frankfurter.dev/v2/rate/usd/twd'  # 歐洲央行每日參考匯率（公開API，備援來源）
 ENC_PATH = 'financial-workbook.enc'
 JSON_PATH = 'data.json'
 
@@ -123,13 +123,15 @@ def _fetch_fx_bot_csv():
 
 
 def _fetch_fx_frankfurter():
-    """備援匯率來源：Frankfurter（歐洲央行每日參考匯率），公開API，不會有機器人驗證問題。"""
-    resp = requests.get(FRANKFURTER_URL, params={'base': 'USD', 'symbols': 'TWD'}, timeout=20)
+    """備援匯率來源：Frankfurter（歐洲央行每日參考匯率），公開API，不會有機器人驗證問題。
+    注意：Frankfurter在2026年改版過API路徑，舊版 v1/latest?base=...&symbols=... 已回404，
+    現在的端點是 v2/rate/{base}/{quote}，回應格式也不同（單一 rate 欄位，不是 rates 物件）。"""
+    resp = requests.get(FRANKFURTER_URL, timeout=20)
     resp.raise_for_status()
     payload = resp.json()
-    fx = payload.get('rates', {}).get('TWD')
+    fx = payload.get('rate')
     if fx is None:
-        raise RuntimeError(f'回應中找不到TWD匯率：{payload}')
+        raise RuntimeError(f'回應中找不到匯率欄位：{payload}')
     fx = round(float(fx), 4)
     if not (FX_MIN <= fx <= FX_MAX):
         raise RuntimeError(f'抓到的匯率 {fx} 超出合理範圍({FX_MIN}~{FX_MAX})')
