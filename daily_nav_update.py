@@ -28,7 +28,6 @@ import requests
 from bs4 import BeautifulSoup
 import openpyxl
 from openpyxl.styles import Alignment
-from openpyxl.chart import BarChart, Reference
 
 import extract_data as ed
 
@@ -252,62 +251,47 @@ def upsert_nav_history_row(ws_hist, today_iso, nav, fx, fund_mv, total_assets, t
 
 
 def repair_layout_and_charts(wb):
-    """修正「淨值歷史」分頁最初版面留下的顯示問題，並把走勢圖改成柱狀圖：
-    1) A2說明文字當初沒設定自動換行(wrap_text)，文字較長時會直接往右溢出儲存格範圍，
-       在Excel裡看起來像「字體超出去」；這裡改成自動換行＋足夠的列高，並把幾個容易
-       擠不下中文標題的欄位稍微加寬，避免標題文字被裁切。
-    2) 「淨值歷史」與「儀表板」原本是折線圖，建立當時只框選了2列資料範圍
-       （標題列 + 建立當下那1筆種子資料），之後每天 upsert_nav_history_row() 新增的資料列
-       並不會自動被圖表納入——圖表的資料/類別範圍是寫死在圖表定義裡的固定儲存格參照。
-       結果就是資料明明越存越多，圖表卻永遠只看得到最早那1個點，1個點畫不出線，
-       看起來像壞掉、空白的圖表。且只有1~2個點時折線圖本來就不好看。
-    這裡改成：每天都直接把兩個圖表整個重建成「柱狀圖」（每天一根柱子，資料點少的時候
-    也清楚好看），資料/類別範圍固定放寬到第5000列（大約可容納13年份的每日資料），
-    之後新增的資料列會自動被涵蓋，不需要再回來調整圖表定義。
+    """修正「淨值歷史」分頁的版面問題，並移除淨值走勢圖表：
+    1) A2說明文字自動換行＋足夠列高，避免文字往右溢出視覺範圍。
+    2) 「更新來源」（H欄）文字內容是每天動態產生的說明文字，長度不固定
+       （例如「MoneyDJ／Frankfurter歐洲央行參考匯率(備援)（每日自動）」），
+       原本沒有設定自動換行，欄位又不夠寬，文字常常整段超出格子往右溢出——
+       這裡幫每一列已經有資料的H欄開自動換行、加大欄寬與列高，讓文字乖乖待在格子裡。
+    3) 直接移除「淨值歷史」「儀表板」兩個工作表的淨值走勢圖表。原本嘗試改成柱狀圖，
+       但因為只有1個數列、Excel在「依資料點變色」的預設行為下，圖例反而冒出一堆
+       看不懂的日期序號（像46283這種Excel內部日期序號，而不是正常日期文字），
+       Norris反應看不懂、乾脆整個拿掉，所以這裡就不再嘗試修圖表、直接刪除。
     這個函式每天都會執行一次，刻意設計成重複執行也不會壞掉或疊加錯誤
-    （每次都是「整個重新產生同樣設定的圖表」，不是疊加或累積修改）。"""
-    # 用5000列當上限（大約可容納13年份的每日資料），不用擔心之後又要回來調整
-    CHART_MAX_ROW = 5000
-    # 折線圖建立時期留下的舊圖表沒有這個問題，但保留原本的預設錨點位置以防第一次找不到既有圖表
-    DEFAULT_ANCHOR = {'淨值歷史': 'J4', '儀表板': 'A40'}
-
+    （每次都是「設成同樣的版面設定」，不是疊加或累積修改）。"""
     ws_hist = wb['淨值歷史']
+
+    # 1) A2 自動換行
     a2 = ws_hist['A2']
     a2.alignment = Alignment(wrap_text=True, vertical='center')
     current_height = ws_hist.row_dimensions[2].height
     if current_height is None or current_height < 34:
         ws_hist.row_dimensions[2].height = 34
-    # 「基金市值(TWD)」「總資產(TWD)」「總負債(TWD)」這幾欄標題文字較長，原本寬度偏窄
-    # 容易讓標題字被裁切看起來像超出格外，這裡加寬一點留呼吸空間
-    for col_letter, min_width in (('D', 18), ('E', 18), ('F', 18)):
+
+    # 「基金市值(TWD)」「總資產(TWD)」「總負債(TWD)」標題文字較長，「更新來源」內容長度不固定，
+    # 這幾欄都加寬留呼吸空間
+    for col_letter, min_width in (('D', 18), ('E', 18), ('F', 18), ('H', 36)):
         cur = ws_hist.column_dimensions[col_letter].width
         if cur is None or cur < min_width:
             ws_hist.column_dimensions[col_letter].width = min_width
 
-    def _rebuild_as_bar_chart(ws, sheet_name):
-        existing = ws._charts
-        anchor = existing[0].anchor if existing else DEFAULT_ANCHOR[sheet_name]
-        height = existing[0].height if existing else 8
-        width = existing[0].width if existing else (22 if sheet_name == '淨值歷史' else 24)
-        ws._charts = []  # 整批清掉舊圖表（不管原本是折線圖還是柱狀圖），下面重新產生一份
+    # 2) H欄（更新來源）每一列已經有資料的儲存格都開自動換行、給足夠列高
+    r = 5
+    while ws_hist.cell(row=r, column=1).value is not None:
+        h_cell = ws_hist.cell(row=r, column=8)
+        h_cell.alignment = Alignment(wrap_text=True, vertical='center')
+        current_row_height = ws_hist.row_dimensions[r].height
+        if current_row_height is None or current_row_height < 30:
+            ws_hist.row_dimensions[r].height = 30
+        r += 1
 
-        chart = BarChart()
-        chart.type = 'col'  # 直立柱狀圖
-        chart.style = 2
-        chart.title = '淨值走勢' if sheet_name == '淨值歷史' else None
-        chart.y_axis.title = '淨值 (TWD)'
-        chart.x_axis.title = '日期'
-        chart.height = height
-        chart.width = width
-        chart.gapWidth = 40  # 柱子之間留一點間距，資料點少時比較不會看起來太粗一整塊
-        data_ref = Reference(ws_hist, min_col=7, min_row=4, max_row=CHART_MAX_ROW)
-        cats_ref = Reference(ws_hist, min_col=1, min_row=5, max_row=CHART_MAX_ROW)
-        chart.add_data(data_ref, titles_from_data=True)
-        chart.set_categories(cats_ref)
-        ws.add_chart(chart, anchor)
-
+    # 3) 移除淨值走勢圖表（不管原本是折線圖還是柱狀圖）
     for sheet_name in ('淨值歷史', '儀表板'):
-        _rebuild_as_bar_chart(wb[sheet_name], sheet_name)
+        wb[sheet_name]._charts = []
 
 
 def main():
