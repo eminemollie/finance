@@ -28,6 +28,7 @@ import requests
 from bs4 import BeautifulSoup
 import openpyxl
 from openpyxl.styles import Alignment
+from openpyxl.chart import BarChart, Reference
 
 import extract_data as ed
 
@@ -251,46 +252,62 @@ def upsert_nav_history_row(ws_hist, today_iso, nav, fx, fund_mv, total_assets, t
 
 
 def repair_layout_and_charts(wb):
-    """修正「淨值歷史」分頁最初版面留下的兩個顯示問題：
+    """修正「淨值歷史」分頁最初版面留下的顯示問題，並把走勢圖改成柱狀圖：
     1) A2說明文字當初沒設定自動換行(wrap_text)，文字較長時會直接往右溢出儲存格範圍，
-       在Excel裡看起來像「字體超出去」。
-    2) 「淨值歷史」與「儀表板」的淨值走勢折線圖，建立當時只框選了2列資料範圍
+       在Excel裡看起來像「字體超出去」；這裡改成自動換行＋足夠的列高，並把幾個容易
+       擠不下中文標題的欄位稍微加寬，避免標題文字被裁切。
+    2) 「淨值歷史」與「儀表板」原本是折線圖，建立當時只框選了2列資料範圍
        （標題列 + 建立當下那1筆種子資料），之後每天 upsert_nav_history_row() 新增的資料列
        並不會自動被圖表納入——圖表的資料/類別範圍是寫死在圖表定義裡的固定儲存格參照。
        結果就是資料明明越存越多，圖表卻永遠只看得到最早那1個點，1個點畫不出線，
-       看起來像壞掉、空白的圖表。
-    這裡把兩個圖表的資料/類別範圍都放寬到第400列（大約可容納超過一年份的每日資料），
-    之後新增的資料列會自動被既有圖表涵蓋，不需要每天重新調整圖表定義。
+       看起來像壞掉、空白的圖表。且只有1~2個點時折線圖本來就不好看。
+    這裡改成：每天都直接把兩個圖表整個重建成「柱狀圖」（每天一根柱子，資料點少的時候
+    也清楚好看），資料/類別範圍固定放寬到第5000列（大約可容納13年份的每日資料），
+    之後新增的資料列會自動被涵蓋，不需要再回來調整圖表定義。
     這個函式每天都會執行一次，刻意設計成重複執行也不會壞掉或疊加錯誤
-    （每次都是「設成同一個寬範圍」，不是在既有範圍上累加）。"""
+    （每次都是「整個重新產生同樣設定的圖表」，不是疊加或累積修改）。"""
     # 用5000列當上限（大約可容納13年份的每日資料），不用擔心之後又要回來調整
     CHART_MAX_ROW = 5000
-    REF_PATTERN = re.compile(r'^(?P<prefix>.*!\$(?P<col>[A-Z]+)\$)(?P<start>\d+)(?::\$(?P=col)\$\d+)?$')
+    # 折線圖建立時期留下的舊圖表沒有這個問題，但保留原本的預設錨點位置以防第一次找不到既有圖表
+    DEFAULT_ANCHOR = {'淨值歷史': 'J4', '儀表板': 'A40'}
 
     ws_hist = wb['淨值歷史']
     a2 = ws_hist['A2']
     a2.alignment = Alignment(wrap_text=True, vertical='center')
     current_height = ws_hist.row_dimensions[2].height
-    if current_height is None or current_height < 30:
-        ws_hist.row_dimensions[2].height = 30
+    if current_height is None or current_height < 34:
+        ws_hist.row_dimensions[2].height = 34
+    # 「基金市值(TWD)」「總資產(TWD)」「總負債(TWD)」這幾欄標題文字較長，原本寬度偏窄
+    # 容易讓標題字被裁切看起來像超出格外，這裡加寬一點留呼吸空間
+    for col_letter, min_width in (('D', 18), ('E', 18), ('F', 18)):
+        cur = ws_hist.column_dimensions[col_letter].width
+        if cur is None or cur < min_width:
+            ws_hist.column_dimensions[col_letter].width = min_width
 
-    def _widen_refs(chart):
-        for series in chart.series:
-            for data_source in (series.val, series.cat):
-                if data_source is None:
-                    continue
-                for ref in (getattr(data_source, 'numRef', None), getattr(data_source, 'strRef', None)):
-                    if ref is not None and ref.f:
-                        m = REF_PATTERN.match(ref.f)
-                        # 原本的參照可能是單一儲存格（例如只有1筆資料時的 $G$5，沒有冒號range），
-                        # 也可能已經是範圍（例如 $G$4:$G$5）。兩種情況都正規化成
-                        # 「起始列不變、結束列固定放寬到 CHART_MAX_ROW」的範圍參照。
-                        if m:
-                            ref.f = f"{m.group('prefix')}{m.group('start')}:${m.group('col')}${CHART_MAX_ROW}"
+    def _rebuild_as_bar_chart(ws, sheet_name):
+        existing = ws._charts
+        anchor = existing[0].anchor if existing else DEFAULT_ANCHOR[sheet_name]
+        height = existing[0].height if existing else 8
+        width = existing[0].width if existing else (22 if sheet_name == '淨值歷史' else 24)
+        ws._charts = []  # 整批清掉舊圖表（不管原本是折線圖還是柱狀圖），下面重新產生一份
+
+        chart = BarChart()
+        chart.type = 'col'  # 直立柱狀圖
+        chart.style = 2
+        chart.title = '淨值走勢' if sheet_name == '淨值歷史' else None
+        chart.y_axis.title = '淨值 (TWD)'
+        chart.x_axis.title = '日期'
+        chart.height = height
+        chart.width = width
+        chart.gapWidth = 40  # 柱子之間留一點間距，資料點少時比較不會看起來太粗一整塊
+        data_ref = Reference(ws_hist, min_col=7, min_row=4, max_row=CHART_MAX_ROW)
+        cats_ref = Reference(ws_hist, min_col=1, min_row=5, max_row=CHART_MAX_ROW)
+        chart.add_data(data_ref, titles_from_data=True)
+        chart.set_categories(cats_ref)
+        ws.add_chart(chart, anchor)
 
     for sheet_name in ('淨值歷史', '儀表板'):
-        for chart in wb[sheet_name]._charts:
-            _widen_refs(chart)
+        _rebuild_as_bar_chart(wb[sheet_name], sheet_name)
 
 
 def main():

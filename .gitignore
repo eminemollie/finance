@@ -1,0 +1,14 @@
+# pull_latest.exe 打包產生的檔案，只存在本機，不需要進repo
+pull_latest.exe
+build_tmp/
+build_log.txt
+
+# pull_latest.py 執行時自己產生的記錄檔，只是本機除錯用
+pull_latest_log.txt
+
+# 舊版偵錯留下的暫存輸出，不需要進repo
+result.txt
+
+# Python快取
+__pycache__/
+*.pyc
