@@ -1310,6 +1310,24 @@ document.getElementById('rate-v').addEventListener('input',function(){
 
 // ════════════════════════════════════════════════════════════
 // 密碼鎖定：每次開啟頁面都需要輸入密碼，成功後才初始化整個應用
+//
+// 2026-09-17安全性修正：這裡原本會把輸入的密碼算一次單輪、沒加鹽的SHA-256，
+// 拿去跟下面這個寫死在原始碼裡的 PW_HASH 比對是否正確——問題是這個頁面部署在
+// 公開的GitHub Pages上，任何人檢視原始碼都能拿到PW_HASH，而單輪SHA-256非常
+// 適合用GPU離線暴力破解，破解出明碼密碼後就能解開這裡所有用同一組密碼保護的
+// 加密資料，等於是整個系統裡防護強度最弱的一環（真正保護資料的金鑰是用PBKDF2
+// 跑10萬輪算出來的，安全很多）。
+// 現在改成：先用輸入的密碼衍生金鑰，實際去嘗試解密一份真實的加密資料
+// （data.json）驗證密碼對不對，解密失敗（AES-GCM的認證標籤驗不過）才判定密碼
+// 錯誤——不再依賴任何額外的、可以被離線破解的雜湊值。
+//
+// PW_HASH 仍然保留，但現在唯一的用途是當作呼叫Cloudflare Worker（雲端同步）
+// 的Authorization Bearer token（見下方pushToCloud）。這個Worker是另外部署的
+// 服務、原始碼不在這個repo裡，這裡沒辦法一併把這個token也換成更安全的做法
+// （PW_HASH是公開可見的常數，理論上任何人都能直接冒用這組token呼叫Worker的
+// 寫入/讀取端點，即使拿不到真正密碼、解不開實際內容，仍可能亂寫垃圾資料造成
+// 雲端同步被污染或Worker配額被濫用）——如果之後想徹底解決，需要同時更新Worker
+// 那邊的驗證邏輯，兩邊要協調一起改，不能只改這個檔案。
 // ════════════════════════════════════════════════════════════
 const PW_HASH='6a1227b96a180e414c2d80c099e0734938a2af5275a9c17941c4035b6a0507f9';
 async function sha256Hex(text){
@@ -1373,18 +1391,45 @@ async function checkPassword(e){
   e.preventDefault();
   const input=document.getElementById('lock-input');
   const err=document.getElementById('lock-err');
+  const btn=document.querySelector('#lock-form .lock-btn');
   const val=input.value;
-  const hash=await sha256Hex(val);
-  if(hash===PW_HASH){
-    _cryptoKey=await deriveKey(val); // 用明碼密碼衍生加密金鑰，密碼本身不做任何儲存
-    document.getElementById('lock-screen').style.display='none';
-    document.querySelector('.page').classList.add('unlocked');
-    initApp();
-  }else{
+  err.textContent='';
+  if(btn){ btn.disabled=true; btn.textContent='驗證中…'; }
+
+  const candidateKey=await deriveKey(val); // 用明碼密碼衍生金鑰，密碼本身不做任何儲存
+
+  // 用這組金鑰實際去解密一份真實的加密資料（data.json），解得開才代表密碼真的對——
+  // 不再依賴容易被離線破解的PW_HASH雜湊比對（見上方說明）。
+  // verified: true=密碼確認正確／false=密碼確認錯誤／null=目前沒有資料可驗證（例如
+  // 還沒同步過、或離線讀不到data.json），這種情況就放行，讓使用者先進去，之後實際
+  // 同步/解密資料時如果密碼真的不對，那些流程本來就會各自妥善處理解密失敗的情況。
+  let verified=null;
+  try{
+    const res=await fetch('data.json?t='+Date.now());
+    if(res.ok){
+      const raw=await res.json();
+      if(raw && raw.encrypted && raw.data){
+        const prevKey=_cryptoKey;
+        _cryptoKey=candidateKey;
+        const d=await decryptFromCloud(raw.data);
+        _cryptoKey=prevKey; // 驗證用途，先還原，確定結果後下面才正式套用
+        verified=!!d;
+      }
+    }
+  }catch(_e){ /* 讀不到/解析失敗：視同無法驗證，放行 */ }
+
+  if(verified===false){
+    if(btn){ btn.disabled=false; btn.textContent='解鎖'; }
     err.textContent='密碼錯誤，請再試一次';
     input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
     input.value=''; input.focus();
+    return false;
   }
+
+  _cryptoKey=candidateKey;
+  document.getElementById('lock-screen').style.display='none';
+  document.querySelector('.page').classList.add('unlocked');
+  initApp();
   return false;
 }
 

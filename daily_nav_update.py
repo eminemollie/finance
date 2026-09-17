@@ -333,13 +333,20 @@ def repair_layout_and_charts(wb):
 
 
 def main():
+    # 2026-09-17安全性/穩健性修正：這個函式原本不管遇到什麼狀況都 return 0（成功），
+    # 包括NAV/匯率抓取失敗、Excel結構跑掉寫不進去等「真正需要Norris回來處理」的情況——
+    # 導致GitHub Actions畫面永遠顯示綠勾勾，Norris不會收到GitHub內建的失敗通知信，
+    # 淨值可能已經好幾天沒真的更新了卻完全不會發現。現在改成：真正的執行失敗（抓取失敗、
+    # 寫入失敗）回傳非0，讓這次執行在Actions畫面上顯示成失敗、觸發失敗通知信；只有「還沒
+    # 設定好、本來就預期會這樣」的情況（例如DASHBOARD_PASSWORD還沒設定、常駐Excel副本
+    # 還沒建立）維持return 0，不當作錯誤。
     password = os.environ.get('DASHBOARD_PASSWORD')
     if not password:
-        print('⚠️  未設定 DASHBOARD_PASSWORD，無法解密常駐Excel副本，結束（不視為錯誤）')
-        return 0
+        print('[錯誤] 未設定 DASHBOARD_PASSWORD，無法解密常駐Excel副本，結束')
+        return 1
 
     if not os.path.exists(ENC_PATH):
-        print(f'⚠️  找不到 {ENC_PATH}（可能還沒手動 push 過一次新版Excel建立常駐副本），結束')
+        print(f'⚠️  找不到 {ENC_PATH}（可能還沒手動 push 過一次新版Excel建立常駐副本），結束（尚未設定好，不視為錯誤）')
         return 0
 
     # ── 1) 抓取最新 NAV / 匯率，任何一個失敗就整個放棄，不動任何檔案 ──
@@ -347,15 +354,15 @@ def main():
         nav, nav_date = fetch_nav_moneydj()
         print(f'✅ MoneyDJ 淨值：{nav}（淨值日期 {nav_date}）')
     except Exception as e:
-        print(f'⚠️  抓取基金淨值失敗，略過本次自動更新：{e}')
-        return 0
+        print(f'[錯誤] 抓取基金淨值失敗，略過本次自動更新：{e}')
+        return 1
 
     try:
         fx, fx_source = fetch_fx_bot()
         print(f'✅ USD/TWD 匯率：{fx}（來源：{fx_source}）')
     except Exception as e:
-        print(f'⚠️  抓取匯率失敗（含備援來源），略過本次自動更新：{e}')
-        return 0
+        print(f'[錯誤] 抓取匯率失敗（含備援來源），略過本次自動更新：{e}')
+        return 1
 
     now = datetime.datetime.now()
     today_iso = now.date().isoformat()
@@ -377,8 +384,8 @@ def main():
         try:
             update_assumption_cells(wb['資產負債表'], nav, fx, updated_at_str, fx_source)
         except Exception as e:
-            print(f'⚠️  {e}')
-            return 0
+            print(f'[錯誤] {e}')
+            return 1
         wb.save(tmp_xlsx)
 
         # ── 4) 用 extract_data 的既有邏輯重新讀取一次，取得最新單位數／資產／負債結構 ──

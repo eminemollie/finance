@@ -631,6 +631,17 @@ if __name__ == '__main__':
     out_path = sys.argv[2] if len(sys.argv) > 2 else 'data.json'
     password = os.environ.get('DASHBOARD_PASSWORD')  # 從 GitHub Secrets 傳入，不寫死在程式碼裡
 
+    # 2026-09-17安全性修正：這個repo是公開的，data.json／financial-workbook.enc都要靠
+    # DASHBOARD_PASSWORD加密才能安全存在repo裡。這個環境變數理論上不該缺，但如果哪天
+    # GitHub Secrets被誤刪、改名，或本機忘記設定，原本的行為是「印一行警告、照樣把明碼
+    # 財務資料寫進data.json」——這樣會把整份財務資料明碼提交進公開repo的git歷史，而且
+    # git歷史是永久的，事後刪除也救不回來。改成密碼缺失就直接中止、什麼都不寫，寧可讓
+    # 這次同步失敗（GitHub Actions會顯示紅叉，能被看到），也不要悄悄外洩。
+    if not password:
+        print('[錯誤] 未設定 DASHBOARD_PASSWORD 環境變數，為避免把明碼財務資料寫進公開repo，直接中止，不寫出任何檔案。')
+        print('       本機測試請用：DASHBOARD_PASSWORD="你的密碼" python3 extract_data.py "財務管理系統.xlsx" data.json')
+        sys.exit(1)
+
     # 讀取舊版 data.json（若存在）供健檢比對用；若舊檔是加密格式，先解密才能比對
     old_data = None
     if os.path.exists(out_path):
@@ -638,10 +649,7 @@ if __name__ == '__main__':
             with open(out_path, encoding='utf-8') as f:
                 old_raw = json.load(f)
             if old_raw.get('encrypted'):
-                if password:
-                    old_data = decrypt_json(old_raw['data'], password)
-                else:
-                    print('舊版 data.json 是加密格式，但未設定 DASHBOARD_PASSWORD，略過健檢比對')
+                old_data = decrypt_json(old_raw['data'], password)
             else:
                 old_data = old_raw  # 舊版本尚未加密時的相容處理
         except Exception as e:
@@ -655,17 +663,13 @@ if __name__ == '__main__':
         'checkedAt': data['generatedAt'],
     }
 
-    if password:
-        ciphertext = encrypt_json(data, password)
-        output = {
-            'generatedAt': data['generatedAt'],  # 保留在加密外層，方便網頁快速判斷是否有新版本
-            'encrypted': True,
-            'data': ciphertext,
-        }
-        print('🔒 已使用密碼加密 data.json 內容')
-    else:
-        output = data
-        print('⚠️  未設定 DASHBOARD_PASSWORD 環境變數，data.json 將以明碼輸出（未加密）')
+    ciphertext = encrypt_json(data, password)
+    output = {
+        'generatedAt': data['generatedAt'],  # 保留在加密外層，方便網頁快速判斷是否有新版本
+        'encrypted': True,
+        'data': ciphertext,
+    }
+    print('🔒 已使用密碼加密 data.json 內容')
 
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
