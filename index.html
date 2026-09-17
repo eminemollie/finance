@@ -534,6 +534,12 @@ function loadData(){
     assets = d.assets||clone(DEF_ASSETS);
     debtOverrides = d.debtOverrides||{};
     netWorthHistory = Array.isArray(d.netWorthHistory)?d.netWorthHistory:[];
+    // 2026-09-18修正：CHILDCARE_MONTHS原本完全沒有被存進localStorage／雲端同步，
+    // 只有在syncFromExcel()偵測到Excel「結構性」更新時才會被覆蓋，一旦SYNC_KEY已經
+    // 跟generatedAt一致（不論是Excel同步過、還是從雲端拉到別台裝置已同步的紀錄），
+    // 這個變數就會停在頁面原始碼裡寫死的舊快照，不會再更新——這裡補上跟其他欄位
+    // 一樣的持久化，才能避免「明明資料已經同步到伺服器，畫面卻一直顯示舊資料」。
+    if(Array.isArray(d.childcareMonths) && d.childcareMonths.length>0) CHILDCARE_MONTHS=d.childcareMonths;
     IID = typeof d.iid==='number'?d.iid:100;
     return true;
   }catch(e){ resetDef(); return false; }
@@ -677,7 +683,7 @@ function exportBackup(){
 
 function saveAll(manual){
   try{
-    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,iid:IID}));
+    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,childcareMonths:CHILDCARE_MONTHS,iid:IID}));
     if(manual) toast('已儲存');
   }catch(e){ toast('儲存失敗'); }
   pushToCloud();
@@ -711,9 +717,10 @@ async function loadFromCloud(){
     assets = d.assets||assets;
     debtOverrides = d.debtOverrides||debtOverrides||{};
     netWorthHistory = Array.isArray(d.netWorthHistory)?d.netWorthHistory:(netWorthHistory||[]);
+    if(Array.isArray(d.childcareMonths) && d.childcareMonths.length>0) CHILDCARE_MONTHS=d.childcareMonths;
     IID = typeof d.iid==='number'?d.iid:IID;
     if(d.excelSyncedAt) localStorage.setItem(SYNC_KEY, d.excelSyncedAt);
-    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,iid:IID}));
+    localStorage.setItem(KEY, JSON.stringify({fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,childcareMonths:CHILDCARE_MONTHS,iid:IID}));
     return true;
   }catch(e){
     console.warn('雲端讀取失敗，使用本機資料', e);
@@ -726,7 +733,7 @@ function pushToCloud(){
   clearTimeout(_cloudPushTimer);
   _cloudPushTimer=setTimeout(async ()=>{
     try{
-      const payload={fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,iid:IID,
+      const payload={fx:FX,rate:RATE,nav:NAV,incItems,costItems,hist,assets,debtOverrides,netWorthHistory,childcareMonths:CHILDCARE_MONTHS,iid:IID,
         excelSyncedAt:localStorage.getItem(SYNC_KEY)||''};
       const ciphertext=await encryptForCloud(payload); // 加密後才送出，雲端只存得到亂碼
       const res=await fetch(CLOUD_SYNC_URL+'/data',{
