@@ -30,6 +30,7 @@ from bs4 import BeautifulSoup
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.workbook.defined_name import DefinedName
 
 import extract_data as ed
 
@@ -737,15 +738,30 @@ def repair_layout_and_charts(wb):
                 break
 
 
+BILLING_MONTH_LIST_NAME = '請款單月份清單'
+
+
 def ensure_billing_month_dropdown(wb):
-    """2026-09-19新增：修復「請款單」A4（請款月份）的下拉選單不見的問題。
+    """2026-09-19新增，2026-09-19當天再修正：修復「請款單」A4（請款月份）的下拉選單不見的問題。
     A4儲存格的說明文字寫著「可從下拉選單改選其他月份」，但實際上這個下拉選單（資料驗證）
-    在repair_layout_and_charts()掃描資產負債表/儀表板時完全沒被涵蓋到，也不在原本的建置流程裡
-    ——換句話說這個下拉選單原本就沒有被正確建立過，不是「壞掉」而是「從來沒接上」。
-    這裡固定把它接到「育兒費」分頁「月彙總」表格的年月清單（A12:A<最後一列>），
-    跟其他公式（D31~D34、B28~D28）用的是同一個範圍，確保下拉選項跟實際能查到資料的月份一致。
-    每天執行都會重新套用一次（先移除A4現有的驗證規則、再重新加一次），保持idempotent，
-    也順便防止未來如果又有其他流程把它弄丟，這裡都能自動補回來。"""
+    從頭到尾就沒有被正確建立過，不是「壞掉」而是「從來沒接上」。
+
+    第一版修法（已證實不夠）：直接把A4的List資料驗證的來源設成跨分頁範圍
+    `=育兒費!$A$12:$A$<最後一列>`。openpyxl本身可以正常存檔/讀回這個設定（測試過三輪
+    load/save都不會遺失），但**Excel對「List資料驗證直接參照到別的工作表」這件事本身
+    支援度不完整**——這是Excel長期存在的已知限制：在Excel的資料驗證對話框裡，使用者
+    自己手動輸入跨分頁範圍當作List來源時會直接被Excel擋下（跳錯誤訊息），即使用程式
+    （像openpyxl）事先把這個設定寫進檔案裡繞過對話框限制，實際在Excel打開後，下拉箭頭
+    依然常常不會顯示——這才是Norris回報「還是無法下拉」的真正原因，跟先前判斷「不是
+    daily_nav_update.py每天resave造成的」這件事本身沒有矛盾（設定確實有被保留下來，
+    只是Excel不認得/不顯示這種寫法的List來源）。
+
+    正確、通用相容的做法：改用「已定義名稱」（Defined Name）當中介——建立一個活頁簿層級
+    的已定義名稱`請款單月份清單`指向`育兒費!$A$12:$A$<最後一列>`，List資料驗證的來源
+    改成單純的`=請款單月份清單`（只是一個名稱，不是直接的跨分頁範圍）。這是Excel官方
+    支援、最通用的跨分頁下拉選單作法，不會有上述限制。
+    每天執行都會重新套用一次（先移除舊的已定義名稱/驗證規則、再重新加一次），保持
+    idempotent，也順便防止未來被其他改動意外弄丟。"""
     if '請款單' not in wb.sheetnames or '育兒費' not in wb.sheetnames:
         return
     ws = wb['請款單']
@@ -763,13 +779,18 @@ def ensure_billing_month_dropdown(wb):
     if last_row < 12:
         return  # 育兒費分頁的月彙總表格是空的，沒有月份可選，跳過
 
+    ref = f"'育兒費'!$A$12:$A${last_row}"
+    if BILLING_MONTH_LIST_NAME in wb.defined_names:
+        del wb.defined_names[BILLING_MONTH_LIST_NAME]
+    wb.defined_names[BILLING_MONTH_LIST_NAME] = DefinedName(BILLING_MONTH_LIST_NAME, attr_text=ref)
+
     for dv in list(ws.data_validations.dataValidation):
         if 'A4' in dv.sqref:
             ws.data_validations.dataValidation.remove(dv)
 
     dv = DataValidation(
         type='list',
-        formula1=f'=育兒費!$A$12:$A${last_row}',
+        formula1=f'={BILLING_MONTH_LIST_NAME}',
         allow_blank=True,
         showDropDown=False,  # openpyxl/OOXML的已知反直覺行為：showDropDown=False才會「顯示」下拉箭頭
     )
