@@ -27,7 +27,7 @@ import tempfile
 import requests
 from bs4 import BeautifulSoup
 import openpyxl
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Font, PatternFill
 
 import extract_data as ed
 
@@ -251,7 +251,7 @@ def upsert_nav_history_row(ws_hist, today_iso, nav, fx, fund_mv, total_assets, t
 
 
 def repair_layout_and_charts(wb):
-    """修正「淨值歷史」分頁的版面問題，並移除淨值走勢圖表：
+    """修正「淨值歷史」「儀表板」兩個分頁的版面問題，並移除淨值走勢圖表：
     1) A2說明文字自動換行＋足夠列高，避免文字往右溢出視覺範圍。
     2) 「更新來源」（H欄）文字內容是每天動態產生的說明文字，長度不固定
        （例如「MoneyDJ／Frankfurter歐洲央行參考匯率(備援)（每日自動）」），
@@ -261,6 +261,14 @@ def repair_layout_and_charts(wb):
        但因為只有1個數列、Excel在「依資料點變色」的預設行為下，圖例反而冒出一堆
        看不懂的日期序號（像46283這種Excel內部日期序號，而不是正常日期文字），
        Norris反應看不懂、乾脆整個拿掉，所以這裡就不再嘗試修圖表、直接刪除。
+    4) 「儀表板」分頁「🔄 自動更新狀態」區塊裡的「資料來源」欄位，同樣是每天動態產生的
+       說明文字，長度不固定，原本合併儲存格(C:E)也沒開自動換行，欄寬又不夠——文字太長時
+       右邊會被直接裁掉（Norris反映「文字被吃掉了」）。這裡用label比對找到「最後自動更新
+       時間」「資料來源」這兩列，幫它們的值儲存格開自動換行、加大欄寬與列高，讓文字完整換行顯示。
+    5) 「儀表板」分頁殘留的「📈 淨值走勢（近期...）」標題文字：這是第3輪拿掉圖表之前，
+       原本用來介紹圖表的標題文字，圖表拿掉後這行文字沒有意義、留著像是宣告了卻沒有內容
+       的空白區塊，Norris看了覺得怪、要求直接拿掉，這裡就把這個標題儲存格清空、解除合併、
+       重設格式（不留顏色底色），不再顯示。
     這個函式每天都會執行一次，刻意設計成重複執行也不會壞掉或疊加錯誤
     （每次都是「設成同樣的版面設定」，不是疊加或累積修改）。"""
     ws_hist = wb['淨值歷史']
@@ -292,6 +300,37 @@ def repair_layout_and_charts(wb):
     # 3) 移除淨值走勢圖表（不管原本是折線圖還是柱狀圖）
     for sheet_name in ('淨值歷史', '儀表板'):
         wb[sheet_name]._charts = []
+
+    # 4) 儀表板「自動更新狀態」區塊：「最後自動更新時間」「資料來源」欄位開自動換行＋加寬加高
+    if '儀表板' in wb.sheetnames:
+        dash = wb['儀表板']
+        for col_letter, min_width in (('C', 22), ('D', 24), ('E', 22)):
+            cur = dash.column_dimensions[col_letter].width
+            if cur is None or cur < min_width:
+                dash.column_dimensions[col_letter].width = min_width
+
+        for r in range(1, dash.max_row + 1):
+            label = dash.cell(row=r, column=2).value
+            if label in ('最後自動更新時間', '資料來源'):
+                value_cell = dash.cell(row=r, column=3)
+                value_cell.alignment = Alignment(wrap_text=True, vertical='center')
+                current_row_height = dash.row_dimensions[r].height
+                if current_row_height is None or current_row_height < 30:
+                    dash.row_dimensions[r].height = 30
+
+        # 5) 移除殘留的「📈 淨值走勢」標題文字（圖表已移除，這行文字沒有意義了）
+        banner_text = '📈 淨值走勢（近期，資料來自「淨值歷史」分頁）'
+        for r in range(1, dash.max_row + 1):
+            if dash.cell(row=r, column=1).value == banner_text:
+                for merged_range in list(dash.merged_cells.ranges):
+                    if merged_range.min_row == r and merged_range.max_row == r:
+                        dash.unmerge_cells(str(merged_range))
+                for c in range(1, dash.max_column + 1):
+                    cell = dash.cell(row=r, column=c)
+                    cell.value = None
+                    cell.fill = PatternFill(fill_type=None)
+                    cell.font = Font()
+                break
 
 
 def main():
