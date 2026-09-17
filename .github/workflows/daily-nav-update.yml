@@ -18,7 +18,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 安裝相依套件
-        run: pip install openpyxl cryptography requests beautifulsoup4 lxml pandas --quiet
+        run: pip install openpyxl cryptography requests beautifulsoup4 lxml --quiet
 
       - name: 抓取最新淨值/匯率並更新常駐Excel與data.json
         env:

@@ -8,7 +8,7 @@ Excel 記帳 + 自動同步 + 每日自動更新基金淨值／匯率 + 手機�
 - **Excel 帳本**（`財務管理系統.xlsx`）：十一個分頁，涵蓋儀表板、淨值歷史、資產負債表、貸款、基金投資、股票、信用卡年支出、育兒費分帳、請款單、月收支、年度總結
 - **手機網頁儀表板**（`index.html`，部署於 GitHub Pages）：五個分頁（淨值總覽／月收支／情境試算／配息紀錄／育兒費），支援跨裝置雲端同步
 - **手動同步流程**（`sync-excel.yml`）：上傳 Excel 後自動轉換、加密成 `data.json`
-- **每日自動更新流程**（`daily-nav-update.yml`，新增）：每天自動抓取基金最新淨值（MoneyDJ）與 USD/TWD 匯率（台灣銀行），更新常駐加密 Excel 副本與 `data.json`，不需要手動開 Excel 也能讓資產淨值每天跟著市價變動
+- **每日自動更新流程**（`daily-nav-update.yml`，新增）：每天自動抓取基金最新淨值（MoneyDJ）與 USD/TWD 匯率（優先台灣銀行牌告匯率，抓不到時自動改用歐洲央行參考匯率備援），更新常駐加密 Excel 副本與 `data.json`，不需要手動開 Excel 也能讓資產淨值每天跟著市價變動
 
 ## 架構
 
@@ -24,7 +24,8 @@ data.json（AES-GCM加密）      financial-workbook.enc（AES-GCM加密，常�
       │                              ▲
       ▼                              │ 每天 09:00 (台北時間) 自動解密→更新NAV/匯率→重新加密
 index.html（GitHub Pages）    daily_nav_update.py（daily-nav-update.yml 排程執行）
-  讀取data.json→輸入密碼解密         資料來源：MoneyDJ（基金淨值）／台灣銀行（匯率）
+  讀取data.json→輸入密碼解密         資料來源：MoneyDJ（基金淨值）／台灣銀行牌告匯率CSV，
+                                     失敗時自動改用歐洲央行參考匯率備援（匯率）
       │
       ▼（可選）
 Cloudflare Worker（finance-sync）── 跨裝置雲端同步（同樣加密）
@@ -79,7 +80,9 @@ DASHBOARD_PASSWORD="你的密碼" python3 extract_data.py "財務管理系統.xl
 DASHBOARD_PASSWORD="你的密碼" python3 daily_nav_update.py
 ```
 
-**MoneyDJ／台灣銀行網頁結構若改版**，`daily_nav_update.py` 裡的 `fetch_nav_moneydj()` / `fetch_fx_bot()` 會抓不到資料或抓到不合理的數字，此時腳本會印警告並直接跳過本次更新（不會寫壞任何檔案、不會讓排程失敗），但淨值就會停止每日更新，需要回來調整抓取邏輯。
+**MoneyDJ網頁結構若改版**，`daily_nav_update.py` 裡的 `fetch_nav_moneydj()` 會抓不到資料或抓到不合理的數字，此時腳本會印警告並直接跳過本次更新（不會寫壞任何檔案、不會讓排程失敗），但淨值就會停止每日更新，需要回來調整抓取邏輯。
+
+**關於匯率來源**：台灣銀行官網主頁（`rate.bot.com.tw/xrt`）有機器人驗證（Radware）保護，一般程式（無法執行JS的HTTP請求）連線會被擋下、回傳一個驗證挑戰頁面而不是真正資料，這是這套系統先前放棄「Excel自動更新」的主因之一。這次改抓台灣銀行另外提供的CSV下載端點（`rate.bot.com.tw/xrt/flcsv/0/day`），實務上不一定會經過同一層驗證；但如果哪天這個CSV端點也開始被擋（回應內容變成HTML而不是CSV），`fetch_fx_bot()` 會自動印警告並改用備援來源——Frankfurter（歐洲央行每日參考匯率，公開API，不會有機器人驗證問題）——資料來源會忠實記錄在Excel的「資料來源」欄位與淨值歷史裡，不會悄悄混用。如果連備援來源都失敗，才會整個跳過本次更新。
 
 ## 授權
 

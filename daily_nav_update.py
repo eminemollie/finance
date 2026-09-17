@@ -17,6 +17,8 @@ daily_nav_update.py
 """
 import os
 import re
+import io
+import csv
 import sys
 import json
 import datetime
@@ -29,7 +31,8 @@ import openpyxl
 import extract_data as ed
 
 MONEYDJ_URL = 'https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=jfzn3'  # JPM多重收益(美元對沖)-A股(穩定月配)
-BOT_URL = 'https://rate.bot.com.tw/xrt?Lang=zh-TW'
+BOT_CSV_URL = 'https://rate.bot.com.tw/xrt/flcsv/0/day'  # 台灣銀行牌告匯率CSV（輕量端點，主要來源）
+FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'  # 歐洲央行每日參考匯率（公開API，備援來源）
 ENC_PATH = 'financial-workbook.enc'
 JSON_PATH = 'data.json'
 
@@ -80,29 +83,33 @@ def fetch_nav_moneydj():
     return nav, nav_date
 
 
-def fetch_fx_bot():
-    """從台灣銀行牌告匯率頁面抓 USD 即期匯率買入/賣出，回傳兩者中價。"""
-    import pandas as pd
-    resp = requests.get(BOT_URL, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
+def _fetch_fx_bot_csv():
+    """從台灣銀行牌告匯率CSV端點抓 USD 即期匯率買入/賣出，回傳兩者中價。
+    台灣銀行的主要匯率頁面(rate.bot.com.tw/xrt)有機器人驗證(Radware)保護，
+    一般HTTP請求（無法執行JS）會被擋下、回傳一個驗證挑戰頁面而不是真正資料，
+    這裡改用它另外提供的CSV下載端點，一般不會經過同一層驗證。"""
+    resp = requests.get(BOT_CSV_URL, headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+    }, timeout=20)
     resp.raise_for_status()
     resp.encoding = resp.apparent_encoding or 'utf-8'
-    tables = pd.read_html(resp.text)
+    text = resp.text.strip()
 
-    for df in tables:
-        df_str = df.astype(str)
-        has_usd = df_str.apply(lambda col: col.str.contains('USD', na=False)).any(axis=1)
-        if not has_usd.any():
-            continue
-        row = df[has_usd.iloc[:len(df)]].iloc[0] if has_usd.any() else None
-        if row is None:
+    if text.lower().startswith('<!doctype') or text.lower().startswith('<html'):
+        raise RuntimeError('回應內容是HTML而非CSV，可能被機器人驗證擋下')
+
+    reader = csv.reader(io.StringIO(text))
+    for row in reader:
+        cells = [c.strip() for c in row]
+        if not cells or cells[0] != 'USD':
             continue
         nums = []
-        for v in row.tolist():
+        for v in cells[1:]:
             try:
                 fv = float(v)
                 if fv > 0:
                     nums.append(fv)
-            except (TypeError, ValueError):
+            except ValueError:
                 continue
         # 欄位順序一般是：現金買入, 現金賣出, 即期買入, 即期賣出（取最後兩個當即期匯率）
         if len(nums) >= 2:
@@ -110,8 +117,36 @@ def fetch_fx_bot():
             fx = round((buy + sell) / 2, 4)
             if FX_MIN <= fx <= FX_MAX:
                 return fx
+        raise RuntimeError(f'USD這一列數字格式跟預期不符：{cells}')
 
-    raise RuntimeError('台灣銀行匯率頁面結構可能已變動，抓不到合理的USD即期匯率')
+    raise RuntimeError('CSV裡找不到USD這一列，格式可能已變動')
+
+
+def _fetch_fx_frankfurter():
+    """備援匯率來源：Frankfurter（歐洲央行每日參考匯率），公開API，不會有機器人驗證問題。"""
+    resp = requests.get(FRANKFURTER_URL, params={'base': 'USD', 'symbols': 'TWD'}, timeout=20)
+    resp.raise_for_status()
+    payload = resp.json()
+    fx = payload.get('rates', {}).get('TWD')
+    if fx is None:
+        raise RuntimeError(f'回應中找不到TWD匯率：{payload}')
+    fx = round(float(fx), 4)
+    if not (FX_MIN <= fx <= FX_MAX):
+        raise RuntimeError(f'抓到的匯率 {fx} 超出合理範圍({FX_MIN}~{FX_MAX})')
+    return fx
+
+
+def fetch_fx_bot():
+    """抓 USD/TWD 匯率。優先用台灣銀行牌告匯率CSV，失敗（含被機器人驗證擋下）就改用歐洲央行參考匯率當備援。
+    回傳 (匯率, 資料來源說明文字)。"""
+    try:
+        fx = _fetch_fx_bot_csv()
+        return fx, '台灣銀行牌告匯率'
+    except Exception as e:
+        print(f'⚠️  台灣銀行匯率來源抓取失敗（{e}），改用備援來源(Frankfurter/歐洲央行參考匯率)')
+
+    fx = _fetch_fx_frankfurter()
+    return fx, 'Frankfurter歐洲央行參考匯率(備援)'
 
 
 def months_between(start, today):
@@ -162,7 +197,7 @@ def compute_snapshot(data, today):
     return round(fund_mv), round(total_assets), round(total_debt), round(net_worth)
 
 
-def update_assumption_cells(ws_bs, nav, fx, updated_at_str):
+def update_assumption_cells(ws_bs, nav, fx, updated_at_str, fx_source):
     """更新資產負債表『市值假設』與『自動更新狀態』區塊。用label比對儲存格位置，不依賴寫死的row編號。"""
     found_nav = found_fx = found_audit = 0
     for r in range(1, ws_bs.max_row + 1):
@@ -177,7 +212,7 @@ def update_assumption_cells(ws_bs, nav, fx, updated_at_str):
             ws_bs.cell(row=r, column=3).value = updated_at_str
             found_audit += 1
         elif label == '資料來源':
-            ws_bs.cell(row=r, column=3).value = 'MoneyDJ（基金淨值）／台灣銀行牌告匯率（即期買賣中價）'
+            ws_bs.cell(row=r, column=3).value = f'MoneyDJ（基金淨值）／{fx_source}（USD/TWD匯率）'
         elif label == '更新方式':
             ws_bs.cell(row=r, column=3).value = '每日自動（也可手動覆寫上方 NAV／匯率）'
     if found_nav == 0 or found_fx == 0:
@@ -231,10 +266,10 @@ def main():
         return 0
 
     try:
-        fx = fetch_fx_bot()
-        print(f'✅ 台灣銀行 USD/TWD 即期中價：{fx}')
+        fx, fx_source = fetch_fx_bot()
+        print(f'✅ USD/TWD 匯率：{fx}（來源：{fx_source}）')
     except Exception as e:
-        print(f'⚠️  抓取匯率失敗，略過本次自動更新：{e}')
+        print(f'⚠️  抓取匯率失敗（含備援來源），略過本次自動更新：{e}')
         return 0
 
     now = datetime.datetime.now()
@@ -255,7 +290,7 @@ def main():
         wb = openpyxl.load_workbook(tmp_xlsx)
         wb.calculation.fullCalcOnLoad = True
         try:
-            update_assumption_cells(wb['資產負債表'], nav, fx, updated_at_str)
+            update_assumption_cells(wb['資產負債表'], nav, fx, updated_at_str, fx_source)
         except Exception as e:
             print(f'⚠️  {e}')
             return 0
@@ -270,7 +305,7 @@ def main():
         wb2 = openpyxl.load_workbook(tmp_xlsx)
         wb2.calculation.fullCalcOnLoad = True
         upsert_nav_history_row(wb2['淨值歷史'], today_iso, nav, fx, fund_mv, total_assets, total_debt, net_worth,
-                                'MoneyDJ／台灣銀行（每日自動）')
+                                f'MoneyDJ／{fx_source}（每日自動）')
         wb2.save(tmp_xlsx)
 
         # ── 6) 重新加密存回常駐副本 ──
