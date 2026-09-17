@@ -29,6 +29,7 @@ import requests
 from bs4 import BeautifulSoup
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.datavalidation import DataValidation
 
 import extract_data as ed
 
@@ -736,6 +737,50 @@ def repair_layout_and_charts(wb):
                 break
 
 
+def ensure_billing_month_dropdown(wb):
+    """2026-09-19新增：修復「請款單」A4（請款月份）的下拉選單不見的問題。
+    A4儲存格的說明文字寫著「可從下拉選單改選其他月份」，但實際上這個下拉選單（資料驗證）
+    在repair_layout_and_charts()掃描資產負債表/儀表板時完全沒被涵蓋到，也不在原本的建置流程裡
+    ——換句話說這個下拉選單原本就沒有被正確建立過，不是「壞掉」而是「從來沒接上」。
+    這裡固定把它接到「育兒費」分頁「月彙總」表格的年月清單（A12:A<最後一列>），
+    跟其他公式（D31~D34、B28~D28）用的是同一個範圍，確保下拉選項跟實際能查到資料的月份一致。
+    每天執行都會重新套用一次（先移除A4現有的驗證規則、再重新加一次），保持idempotent，
+    也順便防止未來如果又有其他流程把它弄丟，這裡都能自動補回來。"""
+    if '請款單' not in wb.sheetnames or '育兒費' not in wb.sheetnames:
+        return
+    ws = wb['請款單']
+    ws_cc = wb['育兒費']
+
+    last_row = 11
+    r = 12
+    while True:
+        v = ws_cc.cell(row=r, column=1).value
+        if isinstance(v, str) and '年' in v and '月' in v:
+            last_row = r
+            r += 1
+        else:
+            break
+    if last_row < 12:
+        return  # 育兒費分頁的月彙總表格是空的，沒有月份可選，跳過
+
+    for dv in list(ws.data_validations.dataValidation):
+        if 'A4' in dv.sqref:
+            ws.data_validations.dataValidation.remove(dv)
+
+    dv = DataValidation(
+        type='list',
+        formula1=f'=育兒費!$A$12:$A${last_row}',
+        allow_blank=True,
+        showDropDown=False,  # openpyxl/OOXML的已知反直覺行為：showDropDown=False才會「顯示」下拉箭頭
+    )
+    dv.error = '請從下拉選單選擇一個已存在的月份（格式須與「育兒費」分頁的年月一致，例如115年09月）'
+    dv.errorTitle = '月份格式錯誤'
+    dv.promptTitle = '請款月份'
+    dv.prompt = '點這個儲存格右側會出現下拉箭頭，可選擇「育兒費」分頁裡已有資料的月份'
+    ws.add_data_validation(dv)
+    dv.add('A4')
+
+
 def main():
     # 2026-09-17安全性/穩健性修正：這個函式原本不管遇到什麼狀況都 return 0（成功），
     # 包括NAV/匯率抓取失敗、Excel結構跑掉寫不進去等「真正需要Norris回來處理」的情況——
@@ -832,6 +877,7 @@ def main():
         if '股票部位' in wb2.sheetnames:
             restyle_stock_positions_sheet(wb2['股票部位'])
         autofit_other_sheets(wb2)
+        ensure_billing_month_dropdown(wb2)
         wb2.save(tmp_xlsx)
 
         # ── 6) 重新加密存回常駐副本 ──
