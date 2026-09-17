@@ -32,39 +32,56 @@ from openpyxl.styles import Alignment, Font, PatternFill
 import extract_data as ed
 
 MONEYDJ_URL = 'https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=jfzn3'  # JPM多重收益(美元對沖)-A股(穩定月配)
+MONEYDJ_TECH_FUND_URL = 'https://www.moneydj.com/funddj/ya/yp010000.djhtm?a=acjf76'  # 摩根新興科技基金-一般型(新台幣)
 BOT_CSV_URL = 'https://rate.bot.com.tw/xrt/flcsv/0/day'  # 台灣銀行牌告匯率CSV（輕量端點，主要來源）
 FRANKFURTER_URL = 'https://api.frankfurter.dev/v2/rate/usd/twd'  # 歐洲央行每日參考匯率（公開API，備援來源）
+TWSE_STOCK_DAY_ALL_URL = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'  # 證交所OpenAPI，全市場當日收盤價
 ENC_PATH = 'financial-workbook.enc'
 JSON_PATH = 'data.json'
 
 NAV_MIN, NAV_MAX = 20.0, 200.0
 FX_MIN, FX_MAX = 20.0, 45.0
+TECH_FUND_NAV_MIN, TECH_FUND_NAV_MAX = 100.0, 2000.0  # 摩根新興科技基金淨值(新台幣計價)合理範圍
+STOCK_PRICE_RANGES = {  # 個股/ETF收盤價合理範圍，抓到超出範圍的數字視為抓取異常（例如抓錯欄位）
+    '0050': (30.0, 300.0),
+    '0052': (15.0, 200.0),
+}
+STOCK_HOLDING_CODES = set(STOCK_PRICE_RANGES.keys())
+TECH_FUND_NAME = '摩根新興科技證券投資信託基金'
 
 
-def fetch_nav_moneydj():
-    """從 MoneyDJ 淨值表撈「淨值日期」「最新淨值」這一列。抓不到／格式跑掉就丟例外。"""
-    resp = requests.get(MONEYDJ_URL, headers={
+def _fetch_moneydj_nav(url, nav_min, nav_max):
+    """從 MoneyDJ 淨值表撈「淨值日期」欄與同一列裡的淨值欄位。抓不到／格式跑掉就丟例外。
+    這裡不寫死欄位的完整標題文字——境外基金頁（如MONEYDJ_URL）欄位標題固定是「最新淨值」，
+    但國內基金頁（如MONEYDJ_TECH_FUND_URL）欄位標題可能是「淨值」「淨值(最新)」等變體，
+    只認「淨值日期」這個固定欄位，同一列裡再找下一個「文字裡有淨值兩個字」的欄位當作淨值本身，
+    讓同一套解析邏輯可以共用給不同版型的MoneyDJ頁面。"""
+    resp = requests.get(url, headers={
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
     }, timeout=20)
     resp.raise_for_status()
     resp.encoding = resp.apparent_encoding or 'utf-8'
     soup = BeautifulSoup(resp.text, 'html.parser')
 
-    header_cells, data_cells = None, None
+    header_cells, data_cells, idx_nav = None, None, None
     for tr in soup.find_all('tr'):
         cells = [c.get_text(strip=True) for c in tr.find_all(['td', 'th'])]
-        if '淨值日期' in cells and '最新淨值' in cells:
+        if '淨值日期' in cells:
+            idx_date_candidate = cells.index('淨值日期')
+            nav_candidates = [i for i, c in enumerate(cells) if i != idx_date_candidate and '淨值' in c]
+            if not nav_candidates:
+                continue
             header_cells = cells
+            idx_nav = nav_candidates[0]
             nxt = tr.find_next_sibling('tr')
             if nxt:
                 data_cells = [c.get_text(strip=True) for c in nxt.find_all(['td', 'th'])]
             break
 
     if not header_cells or not data_cells:
-        raise RuntimeError('MoneyDJ 頁面結構可能已變動，找不到「淨值日期／最新淨值」表格')
+        raise RuntimeError('MoneyDJ 頁面結構可能已變動，找不到「淨值日期」表格')
 
     idx_date = header_cells.index('淨值日期')
-    idx_nav = header_cells.index('最新淨值')
     date_str = data_cells[idx_date].strip()
     nav_str = data_cells[idx_nav].strip()
 
@@ -74,14 +91,63 @@ def fetch_nav_moneydj():
     nav_date = f'{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
 
     try:
-        nav = float(nav_str)
+        nav = float(nav_str.replace(',', ''))
     except ValueError:
-        raise RuntimeError(f'最新淨值無法轉成數字：{nav_str!r}')
+        raise RuntimeError(f'淨值無法轉成數字：{nav_str!r}')
 
-    if not (NAV_MIN <= nav <= NAV_MAX):
-        raise RuntimeError(f'抓到的淨值 {nav} 超出合理範圍({NAV_MIN}~{NAV_MAX})，可能抓錯欄位，放棄更新')
+    if not (nav_min <= nav <= nav_max):
+        raise RuntimeError(f'抓到的淨值 {nav} 超出合理範圍({nav_min}~{nav_max})，可能抓錯欄位，放棄更新')
 
     return nav, nav_date
+
+
+def fetch_nav_moneydj():
+    """摩根多重收益基金(美元對沖)-A股(穩定月配)，美元計價，最新淨值。"""
+    return _fetch_moneydj_nav(MONEYDJ_URL, NAV_MIN, NAV_MAX)
+
+
+def fetch_nav_tech_fund():
+    """摩根新興科技證券投資信託基金－一般型，新台幣計價，最新淨值。"""
+    return _fetch_moneydj_nav(MONEYDJ_TECH_FUND_URL, TECH_FUND_NAV_MIN, TECH_FUND_NAV_MAX)
+
+
+def fetch_twse_close_prices(codes):
+    """從證交所OpenAPI一次抓全市場當日（或最近交易日）收盤價，篩出需要的代號。
+    回傳 {代號: (收盤價, 日期ISO字串)}；任何一個代號抓不到或格式異常就丟例外，整批放棄。"""
+    resp = requests.get(TWSE_STOCK_DAY_ALL_URL, headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+    }, timeout=30)
+    resp.raise_for_status()
+    try:
+        rows = resp.json()
+    except ValueError:
+        raise RuntimeError('證交所STOCK_DAY_ALL回應不是合法JSON，可能已改版或被擋下')
+    if not isinstance(rows, list):
+        raise RuntimeError('證交所STOCK_DAY_ALL回應格式不是預期的陣列，可能已改版')
+
+    found = {}
+    for row in rows:
+        code = row.get('Code')
+        if code not in codes:
+            continue
+        date_str = str(row.get('Date', ''))
+        m = re.match(r'(\d{3})(\d{2})(\d{2})', date_str)
+        if not m:
+            raise RuntimeError(f'{code} 的日期格式無法解析：{date_str!r}')
+        date_iso = f'{int(m.group(1)) + 1911:04d}-{m.group(2)}-{m.group(3)}'
+        try:
+            close = float(str(row.get('ClosingPrice', '')).replace(',', ''))
+        except ValueError:
+            raise RuntimeError(f'{code} 的收盤價無法轉成數字：{row.get("ClosingPrice")!r}')
+        lo, hi = STOCK_PRICE_RANGES.get(code, (1.0, 5000.0))
+        if not (lo <= close <= hi):
+            raise RuntimeError(f'{code} 抓到的收盤價 {close} 超出合理範圍({lo}~{hi})，可能抓錯欄位')
+        found[code] = (close, date_iso)
+
+    missing = set(codes) - found.keys()
+    if missing:
+        raise RuntimeError(f'證交所回應中找不到以下代號的資料：{sorted(missing)}')
+    return found
 
 
 def _fetch_fx_bot_csv():
@@ -224,6 +290,66 @@ def update_assumption_cells(ws_bs, nav, fx, updated_at_str, fx_source):
         print('⚠️  找不到「自動更新狀態」稽核區塊（可能是舊版檔案），僅更新NAV/匯率，不寫入稽核欄位')
 
 
+def update_stock_positions(ws_pos, stock_prices, tech_fund_nav, tech_fund_nav_date):
+    """更新「股票部位」分頁每一列的最新價格／市值／未實現損益／價格日期／資料來源，
+    回傳這次算出來的總市值（round過的整數，寫回資產負債表「股票市值」用）。
+    用A欄的代號（0050/0052/摩根新興科技證券投資信託基金）比對儲存格位置，不依賴寫死的row編號；
+    市值／未實現損益直接用Python算好寫入literal數字（不依賴Excel公式重算），
+    跟整份系統既有的「基金市值」算法（compute_snapshot）走同一套設計原則。"""
+    total_mv = 0.0
+    found = 0
+    r = 5
+    while ws_pos.cell(row=r, column=1).value is not None:
+        code = str(ws_pos.cell(row=r, column=1).value).strip()
+        qty = ws_pos.cell(row=r, column=3).value or 0
+        cost = ws_pos.cell(row=r, column=4).value or 0
+
+        if code in stock_prices:
+            price, price_date = stock_prices[code]
+            source = '證交所（TWSE）每日收盤價'
+        elif code == TECH_FUND_NAME:
+            price, price_date = tech_fund_nav, tech_fund_nav_date
+            source = 'MoneyDJ 基金淨值'
+        else:
+            r += 1
+            continue
+
+        mv = qty * price
+        pnl = (price - cost) * qty
+
+        ws_pos.cell(row=r, column=5).value = price
+        ws_pos.cell(row=r, column=6).value = round(mv)
+        ws_pos.cell(row=r, column=7).value = round(pnl)
+        ws_pos.cell(row=r, column=8).value = price_date
+        ws_pos.cell(row=r, column=9).value = f'{source}（每日自動）'
+
+        total_mv += mv
+        found += 1
+        r += 1
+
+    if found == 0:
+        raise RuntimeError('「股票部位」分頁找不到任何可更新的持股列（比對代號0050/0052/摩根新興科技證券投資信託基金皆失敗），版面可能被改動過，放棄更新以免寫錯位置')
+
+    return round(total_mv)
+
+
+def update_stock_market_value_cell(ws_bs, stock_total):
+    """把「股票部位」分頁算出來的總市值寫回資產負債表的「股票市值」列，
+    從手動輸入改成每日自動計算。用label比對儲存格位置，不依賴寫死的row編號。"""
+    # 用 startswith 而非「文字裡有出現」比對：資產負債表下方③的使用說明文字裡剛好也提到「股票市值」
+    # 這幾個字，但那一列是B~D合併儲存格（純說明文字），用「in」比對會誤命中、寫入合併儲存格觸發
+    # openpyxl的MergedCell唯讀例外；真正的目標列標籤固定是以「股票市值」開頭。
+    found = 0
+    for r in range(1, ws_bs.max_row + 1):
+        label = ws_bs.cell(row=r, column=2).value
+        if label and str(label).startswith('股票市值'):
+            ws_bs.cell(row=r, column=3).value = stock_total
+            ws_bs.cell(row=r, column=4).value = '＝0050/0052/摩根新興科技基金市值加總（每日自動更新，明細見「股票部位」分頁）'
+            found += 1
+    if found == 0:
+        raise RuntimeError('資產負債表找不到「股票市值」儲存格，Excel版面可能被改動過，放棄更新以免寫錯位置')
+
+
 def upsert_nav_history_row(ws_hist, today_iso, nav, fx, fund_mv, total_assets, total_debt, net_worth, source):
     """把今天的快照寫入淨值歷史分頁；同一天重複執行則更新原列，不重複新增。"""
     target_row = None
@@ -364,6 +490,24 @@ def main():
         print(f'[錯誤] 抓取匯率失敗（含備援來源），略過本次自動更新：{e}')
         return 1
 
+    # 2026-09-17新增：抓取本人持有的0050/0052收盤價與摩根新興科技基金淨值，
+    # 跟上面NAV/匯率一樣，失敗就整個放棄、不動任何檔案（fail loud，不要悄悄用舊資料）
+    try:
+        stock_prices = fetch_twse_close_prices(STOCK_HOLDING_CODES)
+        for code in sorted(stock_prices):
+            price, price_date = stock_prices[code]
+            print(f'✅ {code} 收盤價：{price}（{price_date}）')
+    except Exception as e:
+        print(f'[錯誤] 抓取0050/0052收盤價失敗，略過本次自動更新：{e}')
+        return 1
+
+    try:
+        tech_fund_nav, tech_fund_nav_date = fetch_nav_tech_fund()
+        print(f'✅ 摩根新興科技基金淨值：{tech_fund_nav}（淨值日期 {tech_fund_nav_date}）')
+    except Exception as e:
+        print(f'[錯誤] 抓取摩根新興科技基金淨值失敗，略過本次自動更新：{e}')
+        return 1
+
     now = datetime.datetime.now()
     today_iso = now.date().isoformat()
     updated_at_str = now.strftime('%Y-%m-%d %H:%M')
@@ -378,11 +522,17 @@ def main():
         with open(tmp_xlsx, 'wb') as f:
             f.write(xlsx_bytes)
 
-        # ── 3) 更新 NAV／匯率／稽核欄位（保留所有公式，不動其他任何資料）──
+        # ── 3) 更新 NAV／匯率／稽核欄位，以及本人股票／基金部位市值（保留所有公式，不動其他任何資料）──
         wb = openpyxl.load_workbook(tmp_xlsx)
         wb.calculation.fullCalcOnLoad = True
         try:
             update_assumption_cells(wb['資產負債表'], nav, fx, updated_at_str, fx_source)
+            if '股票部位' in wb.sheetnames:
+                stock_total = update_stock_positions(wb['股票部位'], stock_prices, tech_fund_nav, tech_fund_nav_date)
+                update_stock_market_value_cell(wb['資產負債表'], stock_total)
+                print(f'✅ 股票／基金部位總市值：{stock_total:,}')
+            else:
+                print('⚠️  找不到「股票部位」分頁（可能還沒上傳新版Excel建立），本次跳過股票市值自動更新，維持目前的手動輸入值')
         except Exception as e:
             print(f'[錯誤] {e}')
             return 1
