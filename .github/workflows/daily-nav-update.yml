@@ -1,0 +1,37 @@
+name: 每日自動更新基金淨值與匯率
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # 每天 UTC 01:00（台北時間 09:00）
+  workflow_dispatch:        # 可手動觸發，方便第一次設定時測試
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 安裝相依套件
+        run: pip install openpyxl cryptography requests beautifulsoup4 lxml pandas --quiet
+
+      - name: 抓取最新淨值/匯率並更新常駐Excel與data.json
+        env:
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+        run: python3 daily_nav_update.py
+
+      - name: 提交並推送
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/eminemollie/finance.git
+          git add data.json financial-workbook.enc
+          git diff --staged --quiet && echo "無變動，略過提交" || \
+            git commit -m "每日自動更新：基金淨值／匯率 ($(date +%Y/%m/%d\ %H:%M))" && git push origin main

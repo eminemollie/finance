@@ -28,25 +28,55 @@ def derive_key(password: str) -> bytes:
     return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), _ENC_SALT, 100000, dklen=32)
 
 
-def encrypt_json(obj, password: str) -> str:
+def encrypt_bytes(plaintext: bytes, password: str) -> str:
+    """通用的位元組加密：回傳 base64(iv+ciphertext) 字串。
+    data.json（JSON文字）與常駐加密Excel副本（二進位xlsx）共用同一套邏輯。"""
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     key = derive_key(password)
     aesgcm = AESGCM(key)
     iv = os.urandom(12)
-    plaintext = json.dumps(obj, ensure_ascii=False).encode('utf-8')
     ciphertext = aesgcm.encrypt(iv, plaintext, None)
     combined = iv + ciphertext
     return base64.b64encode(combined).decode('ascii')
 
 
-def decrypt_json(ciphertext_b64: str, password: str):
+def decrypt_bytes(ciphertext_b64: str, password: str) -> bytes:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     key = derive_key(password)
     combined = base64.b64decode(ciphertext_b64)
     iv, ciphertext = combined[:12], combined[12:]
     aesgcm = AESGCM(key)
-    plaintext = aesgcm.decrypt(iv, ciphertext, None)
+    return aesgcm.decrypt(iv, ciphertext, None)
+
+
+def encrypt_json(obj, password: str) -> str:
+    plaintext = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+    return encrypt_bytes(plaintext, password)
+
+
+def decrypt_json(ciphertext_b64: str, password: str):
+    plaintext = decrypt_bytes(ciphertext_b64, password)
     return json.loads(plaintext.decode('utf-8'))
+
+
+def save_encrypted_workbook_copy(xlsx_path: str, out_path: str, password: str):
+    """把目前這份 xlsx 原始位元組加密後，存成常駐副本（供每日自動更新流程讀寫用）。
+    跟 data.json 用同一組密碼／同一套 AES-GCM 參數，格式為 {"generatedAt":..., "encrypted":true, "data": "<base64>"}。
+    沒有設定密碼時（本機測試無 DASHBOARD_PASSWORD）就略過，不寫出未加密的Excel。"""
+    if not password:
+        print('⚠️  未設定 DASHBOARD_PASSWORD，略過常駐加密Excel副本的寫出')
+        return
+    with open(xlsx_path, 'rb') as f:
+        raw = f.read()
+    ciphertext = encrypt_bytes(raw, password)
+    output = {
+        'generatedAt': datetime.datetime.now().isoformat(),
+        'encrypted': True,
+        'data': ciphertext,
+    }
+    with open(out_path, 'w', encoding='utf-8') as f:
+        json.dump(output, f)
+    print(f'🔒 已更新常駐加密Excel副本：{out_path}')
 
 
 def col_letter(idx):
@@ -178,6 +208,64 @@ def get_childcare_avg(wb):
     recent = sorted_months[-12:] if len(sorted_months) >= 12 else sorted_months
     total = sum(month_totals[m] for m in recent)
     return round(total / len(recent) / 2)
+
+
+def get_nav_history(wb, limit=180):
+    """讀取「淨值歷史」分頁（每日自動更新流程負責寫入的走勢資料），供手機儀表板畫趨勢圖。
+    分頁不存在時（例如舊版檔案）回傳空陣列，不視為錯誤。"""
+    if '淨值歷史' not in wb.sheetnames:
+        return []
+    ws = wb['淨值歷史']
+    rows = []
+    header_seen = False
+    for r in range(1, ws.max_row + 1):
+        a = ws.cell(row=r, column=1).value
+        if a == '日期':
+            header_seen = True
+            continue
+        if not header_seen:
+            continue
+        if not isinstance(a, (datetime.date, datetime.datetime)):
+            continue
+        nav = ws.cell(row=r, column=2).value
+        fx = ws.cell(row=r, column=3).value
+        fund_mv = ws.cell(row=r, column=4).value
+        total_assets = ws.cell(row=r, column=5).value
+        total_debt = ws.cell(row=r, column=6).value
+        net_worth = ws.cell(row=r, column=7).value
+        source = ws.cell(row=r, column=8).value
+        if not isinstance(net_worth, (int, float)):
+            continue
+        rows.append({
+            'date': to_iso_date(a),
+            'nav': nav if isinstance(nav, (int, float)) else None,
+            'fx': fx if isinstance(fx, (int, float)) else None,
+            'fundMv': round(fund_mv) if isinstance(fund_mv, (int, float)) else None,
+            'totalAssets': round(total_assets) if isinstance(total_assets, (int, float)) else None,
+            'totalDebt': round(total_debt) if isinstance(total_debt, (int, float)) else None,
+            'netWorth': round(net_worth),
+            'source': source or '',
+        })
+    return rows[-limit:]
+
+
+def get_nav_audit(wb):
+    """讀取資產負債表底部「淨值／匯率自動更新狀態」稽核區塊。分頁/區塊不存在時回傳 None。"""
+    if '資產負債表' not in wb.sheetnames:
+        return None
+    ws = wb['資產負債表']
+    audit = {}
+    label_map = {
+        '最後自動更新時間': 'updatedAt',
+        '資料來源': 'source',
+        '更新方式': 'method',
+    }
+    for r in range(1, ws.max_row + 1):
+        label = ws.cell(row=r, column=2).value
+        if label in label_map:
+            val = ws.cell(row=r, column=3).value
+            audit[label_map[label]] = str(val) if val is not None else ''
+    return audit or None
 
 
 def extract(xlsx_path):
@@ -449,6 +537,10 @@ def extract(xlsx_path):
     result['childcareMonths'] = childcare_months
     result['childcareAvg'] = get_childcare_avg(wb)
 
+    # ── 淨值歷史／自動更新稽核：供手機儀表板顯示走勢圖與「資料多新」──
+    result['navHistory'] = get_nav_history(wb)
+    result['navAudit'] = get_nav_audit(wb)
+
     return result
 
 
@@ -568,6 +660,10 @@ if __name__ == '__main__':
 
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+
+    # 同步更新「常駐加密Excel副本」，讓每日自動更新流程之後能讀到最新一次手動同步的內容
+    enc_path = os.path.join(os.path.dirname(os.path.abspath(out_path)) or '.', 'financial-workbook.enc')
+    save_encrypted_workbook_copy(xlsx_path, enc_path, password)
 
     print(f'已輸出 {out_path}')
     print(f"收入項目: {len(data['income'])}, 支出項目: {len(data['expense'])}")
