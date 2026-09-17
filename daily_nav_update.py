@@ -27,6 +27,7 @@ import tempfile
 import requests
 from bs4 import BeautifulSoup
 import openpyxl
+from openpyxl.styles import Alignment
 
 import extract_data as ed
 
@@ -249,6 +250,49 @@ def upsert_nav_history_row(ws_hist, today_iso, nav, fx, fund_mv, total_assets, t
             c.number_format = '0.00'
 
 
+def repair_layout_and_charts(wb):
+    """修正「淨值歷史」分頁最初版面留下的兩個顯示問題：
+    1) A2說明文字當初沒設定自動換行(wrap_text)，文字較長時會直接往右溢出儲存格範圍，
+       在Excel裡看起來像「字體超出去」。
+    2) 「淨值歷史」與「儀表板」的淨值走勢折線圖，建立當時只框選了2列資料範圍
+       （標題列 + 建立當下那1筆種子資料），之後每天 upsert_nav_history_row() 新增的資料列
+       並不會自動被圖表納入——圖表的資料/類別範圍是寫死在圖表定義裡的固定儲存格參照。
+       結果就是資料明明越存越多，圖表卻永遠只看得到最早那1個點，1個點畫不出線，
+       看起來像壞掉、空白的圖表。
+    這裡把兩個圖表的資料/類別範圍都放寬到第400列（大約可容納超過一年份的每日資料），
+    之後新增的資料列會自動被既有圖表涵蓋，不需要每天重新調整圖表定義。
+    這個函式每天都會執行一次，刻意設計成重複執行也不會壞掉或疊加錯誤
+    （每次都是「設成同一個寬範圍」，不是在既有範圍上累加）。"""
+    # 用5000列當上限（大約可容納13年份的每日資料），不用擔心之後又要回來調整
+    CHART_MAX_ROW = 5000
+    REF_PATTERN = re.compile(r'^(?P<prefix>.*!\$(?P<col>[A-Z]+)\$)(?P<start>\d+)(?::\$(?P=col)\$\d+)?$')
+
+    ws_hist = wb['淨值歷史']
+    a2 = ws_hist['A2']
+    a2.alignment = Alignment(wrap_text=True, vertical='center')
+    current_height = ws_hist.row_dimensions[2].height
+    if current_height is None or current_height < 30:
+        ws_hist.row_dimensions[2].height = 30
+
+    def _widen_refs(chart):
+        for series in chart.series:
+            for data_source in (series.val, series.cat):
+                if data_source is None:
+                    continue
+                for ref in (getattr(data_source, 'numRef', None), getattr(data_source, 'strRef', None)):
+                    if ref is not None and ref.f:
+                        m = REF_PATTERN.match(ref.f)
+                        # 原本的參照可能是單一儲存格（例如只有1筆資料時的 $G$5，沒有冒號range），
+                        # 也可能已經是範圍（例如 $G$4:$G$5）。兩種情況都正規化成
+                        # 「起始列不變、結束列固定放寬到 CHART_MAX_ROW」的範圍參照。
+                        if m:
+                            ref.f = f"{m.group('prefix')}{m.group('start')}:${m.group('col')}${CHART_MAX_ROW}"
+
+    for sheet_name in ('淨值歷史', '儀表板'):
+        for chart in wb[sheet_name]._charts:
+            _widen_refs(chart)
+
+
 def main():
     password = os.environ.get('DASHBOARD_PASSWORD')
     if not password:
@@ -308,6 +352,7 @@ def main():
         wb2.calculation.fullCalcOnLoad = True
         upsert_nav_history_row(wb2['淨值歷史'], today_iso, nav, fx, fund_mv, total_assets, total_debt, net_worth,
                                 f'MoneyDJ／{fx_source}（每日自動）')
+        repair_layout_and_charts(wb2)
         wb2.save(tmp_xlsx)
 
         # ── 6) 重新加密存回常駐副本 ──

@@ -15,6 +15,15 @@ import hashlib
 import datetime
 import openpyxl
 
+# Windows終端機常用Big5(cp950)編碼，印中文/emoji時可能整個crash（UnicodeEncodeError）——
+# 即使檔案其實已經處理完成，也會誤以為是失敗。這裡強制輸出用UTF-8，印不出來的字元用問號取代。
+# 放在這裡是因為 daily_nav_update.py 會 import 這個檔案，兩邊在本機（Windows）手動測試時都受益。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 
 # ════════════════════════════════════════════════════════════
 # 端對端加密：跟網頁端（index_v3.html 的 deriveKey/decryptFromCloud）
