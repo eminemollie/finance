@@ -251,72 +251,71 @@ def upsert_nav_history_row(ws_hist, today_iso, nav, fx, fund_mv, total_assets, t
 
 
 def repair_layout_and_charts(wb):
-    """修正「淨值歷史」「儀表板」兩個分頁的版面問題，並移除淨值走勢圖表：
-    1) A2說明文字自動換行＋足夠列高，避免文字往右溢出視覺範圍。
-    2) 「更新來源」（H欄）文字內容是每天動態產生的說明文字，長度不固定
-       （例如「MoneyDJ／Frankfurter歐洲央行參考匯率(備援)（每日自動）」），
-       原本沒有設定自動換行，欄位又不夠寬，文字常常整段超出格子往右溢出——
-       這裡幫每一列已經有資料的H欄開自動換行、加大欄寬與列高，讓文字乖乖待在格子裡。
-    3) 直接移除「淨值歷史」「儀表板」兩個工作表的淨值走勢圖表。原本嘗試改成柱狀圖，
-       但因為只有1個數列、Excel在「依資料點變色」的預設行為下，圖例反而冒出一堆
-       看不懂的日期序號（像46283這種Excel內部日期序號，而不是正常日期文字），
-       Norris反應看不懂、乾脆整個拿掉，所以這裡就不再嘗試修圖表、直接刪除。
-    4) 「儀表板」分頁「🔄 自動更新狀態」區塊裡的「資料來源」欄位，同樣是每天動態產生的
-       說明文字，長度不固定，原本合併儲存格(C:E)也沒開自動換行，欄寬又不夠——文字太長時
-       右邊會被直接裁掉（Norris反映「文字被吃掉了」）。這裡用label比對找到「最後自動更新
-       時間」「資料來源」這兩列，幫它們的值儲存格開自動換行、加大欄寬與列高，讓文字完整換行顯示。
-    5) 「儀表板」分頁殘留的「📈 淨值走勢（近期...）」標題文字：這是第3輪拿掉圖表之前，
-       原本用來介紹圖表的標題文字，圖表拿掉後這行文字沒有意義、留著像是宣告了卻沒有內容
-       的空白區塊，Norris看了覺得怪、要求直接拿掉，這裡就把這個標題儲存格清空、解除合併、
-       重設格式（不留顏色底色），不再顯示。
+    """修正「淨值歷史」「儀表板」兩個分頁的版面問題，並移除淨值走勢圖表。
+
+    2026-09-17：Norris手動在Excel裡把文字大小／欄寬／對齊都調整成他滿意的樣子後，
+    明確要求「之後的文字大小及位置就照這版本運行」——所以這裡不再是「只加寬/加高、
+    不縮小」的最小值邏輯，而是每天都把版面**設成跟Norris那份定案版本完全一樣的固定值**
+    （欄寬、列高、字體大小、對齊方式），不管前一天是什麼狀態，每天執行都會被重設成同一組
+    數字，確保每日自動更新不會不小心把Norris手動調過的版面又蓋回去。
+
+    定案版本的設定（讀Norris上傳的財務管理系統.xlsx比對確認）：
+    1) A2說明文字：Noto Sans CJK SC、10號、斜體、灰色(FF5B6472)，自動換行，列高34.05
+    2) 淨值歷史欄寬固定為 A12/B14/C13/D18/E13/F13/G16/H36
+    3) 「更新來源」（H欄）：每一列已有資料的儲存格置中對齊＋自動換行＋字體縮小到Calibri 9號、
+       列高30，避免長度不固定的說明文字整段溢出格子
+    4) 直接移除「淨值歷史」「儀表板」兩個工作表的淨值走勢圖表（不管原本是折線圖還是柱狀圖，
+       Norris反應圖表看不懂、乾脆整個拿掉，見對話記錄）
+    5) 儀表板欄寬固定為 C22/D24/E22；「🔄 自動更新狀態」區塊「最後自動更新時間」「資料來源」
+       兩列的值儲存格改成自動換行＋垂直靠上對齊、列高30；「資料來源」字體額外縮小到Arial 10號
+       （保留原本的綠字FF008000，只改字體大小），因為這欄內容長度不固定，比「最後自動更新
+       時間」更容易被裁掉
+    6) 清掉儀表板上殘留的「📈 淨值走勢（近期...）」標題文字——圖表已經拿掉了，這行介紹圖表的
+       標題文字留著沒有意義，Norris要求直接拿掉
     這個函式每天都會執行一次，刻意設計成重複執行也不會壞掉或疊加錯誤
     （每次都是「設成同樣的版面設定」，不是疊加或累積修改）。"""
     ws_hist = wb['淨值歷史']
 
-    # 1) A2 自動換行
+    # 1) A2 說明文字：字體、對齊、列高都照Norris調整過的版本固定設定
     a2 = ws_hist['A2']
+    a2.font = Font(name='Noto Sans CJK SC', size=10, italic=True, color='FF5B6472')
     a2.alignment = Alignment(wrap_text=True, vertical='center')
-    current_height = ws_hist.row_dimensions[2].height
-    if current_height is None or current_height < 34:
-        ws_hist.row_dimensions[2].height = 34
+    ws_hist.row_dimensions[2].height = 34.05
 
-    # 「基金市值(TWD)」「總資產(TWD)」「總負債(TWD)」標題文字較長，「更新來源」內容長度不固定，
-    # 這幾欄都加寬留呼吸空間
-    for col_letter, min_width in (('D', 18), ('E', 18), ('F', 18), ('H', 36)):
-        cur = ws_hist.column_dimensions[col_letter].width
-        if cur is None or cur < min_width:
-            ws_hist.column_dimensions[col_letter].width = min_width
+    # 淨值歷史欄寬：固定設成Norris定案版本的數字（不是最小值，每天都重設成同一組）
+    for col_letter, width in (('A', 12), ('B', 14), ('C', 13), ('D', 18), ('E', 13), ('F', 13), ('G', 16), ('H', 36)):
+        ws_hist.column_dimensions[col_letter].width = width
 
-    # 2) H欄（更新來源）每一列已經有資料的儲存格都開自動換行、給足夠列高
+    # 2) H欄（更新來源）每一列已經有資料的儲存格：置中對齊＋自動換行＋縮小字體＋固定列高
     r = 5
     while ws_hist.cell(row=r, column=1).value is not None:
         h_cell = ws_hist.cell(row=r, column=8)
-        h_cell.alignment = Alignment(wrap_text=True, vertical='center')
-        current_row_height = ws_hist.row_dimensions[r].height
-        if current_row_height is None or current_row_height < 30:
-            ws_hist.row_dimensions[r].height = 30
+        h_cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
+        h_cell.font = Font(name='Calibri', size=9)
+        ws_hist.row_dimensions[r].height = 30
         r += 1
 
     # 3) 移除淨值走勢圖表（不管原本是折線圖還是柱狀圖）
     for sheet_name in ('淨值歷史', '儀表板'):
         wb[sheet_name]._charts = []
 
-    # 4) 儀表板「自動更新狀態」區塊：「最後自動更新時間」「資料來源」欄位開自動換行＋加寬加高
+    # 4) 儀表板「自動更新狀態」區塊：欄寬固定＋對齊與字體照Norris定案版本
     if '儀表板' in wb.sheetnames:
         dash = wb['儀表板']
-        for col_letter, min_width in (('C', 22), ('D', 24), ('E', 22)):
-            cur = dash.column_dimensions[col_letter].width
-            if cur is None or cur < min_width:
-                dash.column_dimensions[col_letter].width = min_width
+        for col_letter, width in (('C', 22), ('D', 24), ('E', 22)):
+            dash.column_dimensions[col_letter].width = width
 
         for r in range(1, dash.max_row + 1):
             label = dash.cell(row=r, column=2).value
-            if label in ('最後自動更新時間', '資料來源'):
+            if label == '最後自動更新時間':
                 value_cell = dash.cell(row=r, column=3)
-                value_cell.alignment = Alignment(wrap_text=True, vertical='center')
-                current_row_height = dash.row_dimensions[r].height
-                if current_row_height is None or current_row_height < 30:
-                    dash.row_dimensions[r].height = 30
+                value_cell.alignment = Alignment(wrap_text=True, vertical='top')
+                dash.row_dimensions[r].height = 30
+            elif label == '資料來源':
+                value_cell = dash.cell(row=r, column=3)
+                value_cell.alignment = Alignment(wrap_text=True, vertical='top')
+                value_cell.font = Font(name='Arial', size=10, color='FF008000')
+                dash.row_dimensions[r].height = 30
 
         # 5) 移除殘留的「📈 淨值走勢」標題文字（圖表已移除，這行文字沒有意義了）
         banner_text = '📈 淨值走勢（近期，資料來自「淨值歷史」分頁）'
