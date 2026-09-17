@@ -353,6 +353,24 @@ def update_assumption_cells(ws_bs, nav, fx, updated_at_str, fx_source):
         print('⚠️  找不到「自動更新狀態」稽核區塊（可能是舊版檔案），僅更新NAV/匯率，不寫入稽核欄位')
 
 
+def update_dashboard_last_updated(ws_dash, updated_at_str):
+    """更新儀表板頂部『最後更新日期』欄位（標籤在B2、數值在C2）。
+
+    2026-09-17稍晚發現：這個欄位跟資產負債表『自動更新狀態』稽核區塊（『最後自動更新時間』
+    『資料來源』）是完全不同的儲存格、彼此獨立——之前只在部署當下用一次性腳本手動填過一次
+    日期（而且只有日期沒有時分），從來沒有接上每日自動更新的邏輯，這就是Norris反應『最後更新
+    時間還是沒有自己更新到現在的時間』的根本原因。現在改成每次執行都自動寫入完整的
+    『YYYY-MM-DD HH:MM』字串（跟資產負債表那邊用同一個updated_at_str，兩處時間永遠一致）。"""
+    found = 0
+    for r in range(1, ws_dash.max_row + 1):
+        label = ws_dash.cell(row=r, column=2).value
+        if label and str(label).startswith('最後更新日期'):
+            ws_dash.cell(row=r, column=3).value = updated_at_str
+            found += 1
+    if found == 0:
+        print('⚠️  儀表板找不到「最後更新日期」欄位（可能是舊版檔案），略過這格的自動更新')
+
+
 def update_stock_positions(ws_pos, stock_prices, tech_fund_nav, tech_fund_nav_date):
     """更新「股票部位」分頁每一列的最新價格／市值／未實現損益／價格日期／資料來源，
     回傳這次算出來的總市值（round過的整數，寫回資產負債表「股票市值」用）。
@@ -467,11 +485,27 @@ def restyle_stock_positions_sheet(ws):
     （2026-09-17發現這個分頁是新增的，建立時沒有比照其他分頁的既定配色慣例，
     標題沒有底色、表頭用了不同的藍色且是白字、資料格是預設Calibri字體，
     在整份Excel裡顯得不統一，Norris反應「各頁面風格我希望都統一一致」）。
-    每天都會重新套用一次，寫法上是「設成固定值」，不是疊加，所以重複執行不會壞掉。"""
-    # 標題列：深藍底、白字粗體（比照其他分頁）
+    每天都會重新套用一次，寫法上是「設成固定值」，不是疊加，所以重複執行不會壞掉。
+
+    2026-09-17稍晚：Norris反應這個分頁的標題「呈現方式」跟其他分頁不一致——實際比對後發現
+    不是顏色的問題（深藍底白字本來就有套用），而是**其他分頁的標題列都會合併橫跨整列、
+    置中對齊、列高固定31.5**（例如資產負債表A1:D1、貸款總覽A1:M1），但這個分頁的標題原本
+    只有A1單一儲存格上色，沒有合併、沒有置中、列高也是預設值，導致視覺上標題列看起來窄一截、
+    文字對不齊，不是真的「風格不統一」而是漏了合併／對齊／列高這三個設定。"""
+    # 標題列：深藍底、白字粗體、合併橫跨整列(A1:I1)、置中對齊、固定列高（比照其他分頁）
+    title_range = 'A1:I1'
+    already_merged = any(str(m) == title_range for m in ws.merged_cells.ranges)
+    if not already_merged:
+        # 保險起見：先拆掉任何跟第1列重疊但範圍不一樣的舊合併，避免合併時衝突
+        for existing in list(ws.merged_cells.ranges):
+            if existing.min_row <= 1 <= existing.max_row:
+                ws.unmerge_cells(str(existing))
+        ws.merge_cells(title_range)
+    ws.row_dimensions[1].height = 31.5
     title_cell = ws.cell(row=1, column=1)
     title_cell.fill = TITLE_FILL
     title_cell.font = TITLE_FONT
+    title_cell.alignment = Alignment(horizontal='center', vertical='center')
 
     # 表頭列（第4列）：淺藍底、黑字粗體（原本誤用了跟其他分頁不同的藍底白字）
     for c in range(1, 10):
@@ -771,6 +805,8 @@ def main():
         wb.calculation.fullCalcOnLoad = True
         try:
             update_assumption_cells(wb['資產負債表'], nav, fx, updated_at_str, fx_source)
+            if '儀表板' in wb.sheetnames:
+                update_dashboard_last_updated(wb['儀表板'], updated_at_str)
             if '股票部位' in wb.sheetnames:
                 stock_total = update_stock_positions(wb['股票部位'], stock_prices, tech_fund_nav, tech_fund_nav_date)
                 update_stock_market_value_cell(wb['資產負債表'], stock_total)
