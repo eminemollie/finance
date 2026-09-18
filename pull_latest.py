@@ -180,31 +180,37 @@ def run():
     log(f'=== pull_latest.py 執行記錄（{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}）===')
 
     # --- 覆蓋前的安全檢查：避免蓋掉還沒同步到雲端的本機修改 ---
+    # 2026-09-18再修：git檢查跟「跟上次pull記錄比對」這兩種方法，現在一律都會執行、
+    # 只要任何一種判斷有風險就會警告（之前的版本是「有git就只信git、沒有才退回去比對記錄」，
+    # 實際發生過一次git檢查沒攔到、但本機其實有未同步修改的狀況，所以改成雙重保險、任一有疑慮就攔下來）。
     can_check_git, git_risky = _git_risk_check()
-    if can_check_git:
-        if git_risky:
-            log('[警告] 偵測到這個資料夾有還沒commit、或已commit但還沒push到GitHub的變更！')
-            log('       現在如果繼續，會把本機的 財務管理系統.xlsx 整個蓋掉，換成雲端目前的版本，')
-            log('       剛剛的修改可能就救不回來了（下面雖然還是會先備份一份，但還是建議先確認）。')
-            log('       建議：先用GitHub Desktop commit+push，確認變更已經上傳，再重新執行這個工具。')
-            if not _confirm_overwrite():
-                log('[已取消] 使用者選擇不要覆蓋，本機檔案維持原樣。')
-                return 1
-            log('[使用者確認] 繼續執行，照常覆蓋。')
-        else:
-            log('[安全檢查] 沒有偵測到未同步的變更，可以放心繼續。')
+
+    last_sha = _load_state().get('sha256')
+    cur_sha = _hash_file(OUT_FILE)
+    can_check_state = bool(last_sha and cur_sha)
+    state_risky = can_check_state and (last_sha != cur_sha)
+
+    risky = git_risky or state_risky
+    checked = can_check_git or can_check_state
+
+    if risky:
+        log('[警告] 偵測到本機 財務管理系統.xlsx 可能有還沒同步到雲端的修改！')
+        if can_check_git and git_risky:
+            log('       （git檢查：這個資料夾有還沒commit、或已commit但還沒push到GitHub的變更）')
+        if state_risky:
+            log('       （記錄比對：目前檔案內容跟上一次執行這個工具之後記錄的樣子不一樣，')
+            log('        可能是你自己編輯過、或Cowork幫你改過，但還不確定有沒有commit+push）')
+        log('       現在如果繼續，會把本機的 財務管理系統.xlsx 整個蓋掉，換成雲端目前的版本，')
+        log('       剛剛的修改可能就救不回來了（下面雖然還是會先備份一份，但還是建議先確認）。')
+        log('       建議：先用GitHub Desktop commit+push，確認變更已經上傳，再重新執行這個工具。')
+        if not _confirm_overwrite():
+            log('[已取消] 使用者選擇不要覆蓋，本機檔案維持原樣。')
+            return 1
+        log('[使用者確認] 繼續執行，照常覆蓋。')
+    elif checked:
+        log('[安全檢查] 沒有偵測到未同步的變更，可以放心繼續。')
     else:
-        last_sha = _load_state().get('sha256')
-        cur_sha = _hash_file(OUT_FILE)
-        if last_sha and cur_sha and last_sha != cur_sha:
-            log('[警告] 找不到git可以用來檢查，改用上次記錄比對：')
-            log('       偵測到本機 財務管理系統.xlsx 的內容，跟上一次執行這個工具之後記錄的樣子不一樣，')
-            log('       可能是你自己編輯過、或Cowork幫你改過，但不確定有沒有commit+push。')
-            log('       現在如果繼續，會把這份本機檔案整個蓋掉，換成雲端目前的版本。')
-            if not _confirm_overwrite():
-                log('[已取消] 使用者選擇不要覆蓋，本機檔案維持原樣。')
-                return 1
-            log('[使用者確認] 繼續執行，照常覆蓋。')
+        log('[安全檢查] 沒有足夠資訊可以判斷（git跟上次記錄都用不了），直接繼續。')
 
     # --- 不管有沒有風險，覆蓋前都先備份一份現有檔案，多一層保險 ---
     _backup_current_file()
