@@ -13,6 +13,11 @@ result.txt
 # 不小心在Excel還開著的時候commit可能會把這個也帶進去，先排除掉
 ~$*.xlsx
 
+# pull_latest.py覆蓋前自動留的備份，以及用來偵測「有沒有還沒同步的本機修改」的小記錄檔，
+# 都只是本機用的保險機制，不需要進repo
+財務管理系統.xlsx.backup-*.xlsx
+.pull_latest_state.json
+
 # Python快取
 __pycache__/
 *.pyc
