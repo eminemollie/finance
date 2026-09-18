@@ -457,9 +457,50 @@ def extract(xlsx_path):
                 break
         return best if best is not None else tier_table[-1][1]
 
-    # 月配息歷史（cost 一律由 Python 依單位數重新推算，不讀取 Excel 公式快取）
+    def parse_roc_batch_date(date_str):
+        """把申購記錄B欄的民國日期字串（'115/04/30'或只到月份的'114/04'）轉成西元date，
+        沒給日期的話比照Excel K欄公式的邏輯補成當月1號。"""
+        if not date_str:
+            return None
+        parts = str(date_str).split('/')
+        try:
+            roc_year = int(parts[0])
+            month = int(parts[1])
+            day = int(parts[2]) if len(parts) > 2 else 1
+            return datetime.date(roc_year + 1911, month, day)
+        except (ValueError, IndexError):
+            return None
+
+    # P:Q欄「配息基準日對照表」是手動維護的固定值（不是公式），可以直接讀：
+    # {民國年月代碼(年*100+月): 基準日}，例如115年9月的基準日是8號→key 11509 -> 8
+    basis_day_table = {}
+    for r in range(1, ws.max_row + 1):
+        key_val = ws.cell(row=r, column=16).value  # P
+        day_val = ws.cell(row=r, column=17).value  # Q
+        if isinstance(key_val, (int, float)) and isinstance(day_val, (int, float)):
+            basis_day_table[int(key_val)] = int(day_val)
+
+    def units_as_of_basis_date(basis_date):
+        """依基準日加總所有購買日期在基準日(含)之前的批次單位數，
+        跟Excel D欄的=SUMIFS(...)公式邏輯一致，不依賴Excel公式快取。"""
+        total = 0.0
+        for batch in batches:
+            if batch['units'] is None:
+                continue
+            purchase_date = parse_roc_batch_date(batch['date'])
+            if purchase_date is not None and purchase_date <= basis_date:
+                total += batch['units']
+        return round(total, 3)
+
+    # 月配息歷史（cost 一律由 Python 依單位數重新推算，不讀取 Excel 公式快取）。
+    # 「持有單位數」(D欄)有些月份是手動輸入的固定數字，有些月份（通常是最新、還在追蹤中的
+    # 月份）是=SUMIFS(...)公式、依基準日自動計算——openpyxl非data_only模式讀公式儲存格只會
+    # 讀到公式字串本身，不是算出來的結果，isinstance(d_val,(int,float))判斷不過，導致「C/F欄
+    # 明明已經填了配息資料，這個月份卻整筆從網頁清單消失」。改成偵測到D欄是公式字串時，改用
+    # 上面的基準日對照表+批次購買日期，在Python端自己重新算一次持有單位數，不再整筆跳過。
     hist = []
     mode = None
+    current_yr = ''
     for r in range(1, ws.max_row + 1):
         a = ws.cell(row=r, column=1).value
         b = ws.cell(row=r, column=2).value
@@ -468,9 +509,22 @@ def extract(xlsx_path):
             mode = 'hist'
             continue
         if mode == 'hist':
+            if a:
+                current_yr = str(a)
             if isinstance(c, (int, float)) and b is not None:
-                d_val = ws.cell(row=r, column=4).value  # 持有單位數（原始值，非公式）
+                d_val = ws.cell(row=r, column=4).value  # 持有單位數（原始值或公式）
                 f_val = ws.cell(row=r, column=6).value  # 實收台幣（原始值，非公式）
+                if not isinstance(d_val, (int, float)):
+                    d_val = None
+                    try:
+                        roc_year = int(current_yr.replace('年', ''))
+                        month = int(str(b))
+                        basis_day = basis_day_table.get(roc_year * 100 + month)
+                        if basis_day is not None:
+                            basis_date = datetime.date(roc_year + 1911, month, basis_day)
+                            d_val = units_as_of_basis_date(basis_date)
+                    except (ValueError, TypeError):
+                        d_val = None
                 if isinstance(d_val, (int, float)) and isinstance(f_val, (int, float)):
                     hist.append({
                         'yr': str(a) if a else '',
