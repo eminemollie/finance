@@ -802,6 +802,80 @@ def ensure_billing_month_dropdown(wb):
     dv.add('A4')
 
 
+# 2026-09-18新增：Norris要求調整分頁順序——「家妍投資的部份對於我總資產的統計較不重要，
+# 想要把這個欄位挪到最後面」，並依重要性/邏輯性/便利性微調其餘分頁順序。分類邏輯：
+#   1) 總覽/報告類（儀表板／資產負債表／淨值歷史／年度總結）放最前面
+#   2) 本人的投資類（股票部位／基金配息紀錄）次之
+#   3) 日常收支/負債類（收支明細／信用卡年支出／貸款總覽）再次之
+#   4) 家庭固定支出（育兒費／請款單）——這兩個分頁本身有連動關係（請款單的月份下拉選單、
+#      MATCH公式都直接參照育兒費分頁），刻意排在一起、順序不拆開
+#   5) 股票投資（家妍個人部位，成本法記帳）——依Norris要求排到最後面
+TARGET_SHEET_ORDER = [
+    '儀表板', '資產負債表', '淨值歷史', '年度總結',
+    '股票部位', '基金配息紀錄',
+    '收支明細', '信用卡年支出', '貸款總覽',
+    '育兒費', '請款單',
+    '股票投資',
+]
+
+
+def reorder_sheets(wb):
+    """把分頁重新排成TARGET_SHEET_ORDER的順序。每天都會重設成同一組固定順序（不是
+    只在順序跑掉時才修正），所以就算之後某天不小心被其他流程打亂，隔天也會自動修回來。
+    清單裡列出但活頁簿裡不存在的分頁名稱會被忽略；活頁簿裡有、但清單沒列到的分頁
+    （理論上不會發生，保險起見）會照原本的相對順序接在最後面，不會遺失。"""
+    existing_in_order = [name for name in TARGET_SHEET_ORDER if name in wb.sheetnames]
+    remaining = [name for name in wb.sheetnames if name not in existing_in_order]
+    wb._sheets = [wb[name] for name in existing_in_order + remaining]
+
+
+# 2026-09-18新增：Norris要求「數字我希望都是以粗體顯示，這樣我看得比較清楚」。
+# 判斷「是不是數字」不能只看cell.value的Python型別——這份活頁簿裡大部分數字都是公式
+# 算出來的（例如=收支明細!C12），openpyxl在非data_only模式下讀到的cell.value是公式字串
+# 本身，不是計算結果，沒辦法用型別判斷。改用更可靠的依據：**儲存格的顯示格式
+# （number_format）**——逐一檢查過這份活頁簿12個分頁目前用到的所有number_format
+# （$#,##0系列／0.00系列／0.00%系列／#,##0.000系列等）之後確認：只要格式不是'General'、
+# 也不是日期/時間格式，就一定是設計成顯示數字的儲存格（文字/標籤儲存格在這份活頁簿裡
+# 一律是'General'格式），這個判斷方式對formula儲存格跟直接輸入數字的儲存格都準確。
+# 只調整font.bold，其餘既有的字體設定（名稱/大小/顏色/斜體等）完全保留不變，
+# 避免破壞既有的「藍字=原始輸入／黑字=同分頁公式／綠字=跨分頁公式」配色慣例。
+_DATE_FORMAT_CHARS = re.compile(r'[ymdhsYMDHS]')
+
+
+def _is_date_or_time_format(number_format):
+    """判斷一個number_format是不是日期/時間格式，藉此把日期儲存格排除在「數字粗體化」之外
+    （Norris的原意是金額/數量這類「數字」看得更清楚，不包含日期）。先把格式碼裡用雙引號
+    包起來的字面文字（例如貨幣格式常見的 "-$" ）拿掉，再檢查剩下的部份還有沒有y/m/d/h/s
+    這幾個日期時間格式代碼慣用的字母——這份活頁簿目前用到的貨幣/百分比/小數格式，拿掉
+    引號文字後都不含這些字母，是可靠的判斷方式。"""
+    stripped = re.sub(r'"[^"]*"', '', number_format or '')
+    return bool(_DATE_FORMAT_CHARS.search(stripped))
+
+
+def bold_numeric_cells(wb):
+    """把整份活頁簿裡所有「顯示格式是數字」的儲存格字體都設成粗體，其餘字體屬性
+    （字型名稱/大小/顏色/斜體）維持不變。每天都會重新套用一次，已經是粗體的儲存格
+    會直接跳過（不重建Font物件），重複執行不會壞掉也不會有效能問題。"""
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value is None or isinstance(cell.value, bool):
+                    continue
+                fmt = cell.number_format or 'General'
+                if fmt == 'General' or _is_date_or_time_format(fmt):
+                    continue
+                old_font = cell.font
+                if old_font.bold:
+                    continue
+                cell.font = Font(
+                    name=old_font.name, size=old_font.size, bold=True,
+                    italic=old_font.italic, color=old_font.color,
+                    underline=old_font.underline, strike=old_font.strike,
+                    vertAlign=old_font.vertAlign,
+                )
+
+
 def main():
     # 2026-09-17安全性/穩健性修正：這個函式原本不管遇到什麼狀況都 return 0（成功），
     # 包括NAV/匯率抓取失敗、Excel結構跑掉寫不進去等「真正需要Norris回來處理」的情況——
@@ -899,6 +973,8 @@ def main():
             restyle_stock_positions_sheet(wb2['股票部位'])
         autofit_other_sheets(wb2)
         ensure_billing_month_dropdown(wb2)
+        reorder_sheets(wb2)
+        bold_numeric_cells(wb2)  # 放在所有其他styling函式之後執行，確保粗體設定不會被前面的Font()指定覆蓋掉
         wb2.save(tmp_xlsx)
 
         # ── 6) 重新加密存回常駐副本 ──
