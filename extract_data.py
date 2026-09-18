@@ -135,10 +135,10 @@ def get_credit_card_total(wb):
 
 
 def get_jiayan_remaining(wb):
-    """從股票投資分頁的買賣原始明細重新加總「市場上剩餘金額」，
+    """從他人股票投資分頁的買賣原始明細重新加總「市場上剩餘金額」，
     不依賴任何公式快取（原本是跨分頁公式，快取遺失時會讀不到）。"""
     try:
-        ws = wb['股票投資']
+        ws = wb['他人股票投資']
     except KeyError:
         return None
     buy_total, sell_total = 0, 0

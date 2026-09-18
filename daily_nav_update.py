@@ -802,6 +802,53 @@ def ensure_billing_month_dropdown(wb):
     dv.add('A4')
 
 
+# 2026-09-19新增：Norris要求把原本的「股票投資」分頁（家妍個人部位）改名成「他人股票投資」，
+# 更清楚表達這不是Norris自己的投資部位。用對照表寫，是因為分頁順序、extract_data.py裡
+# 抓資料用的分頁名稱都要跟著一起改，用同一個地方改名可以避免漏改。
+SHEET_RENAME_MAP = {
+    '股票投資': '他人股票投資',
+}
+
+
+def _fix_cross_sheet_formula_refs(wb, old_name, new_name):
+    """分頁改名後，其他分頁公式裡對舊名稱的引用（例如 =股票投資!C24 或 ='股票投資'!C24）
+    openpyxl不會自動更新，需要自己掃過所有分頁的公式字串做取代，不然會變成#REF!錯誤。
+    只處理公式（cell.value以'='開頭的字串），不會動到一般文字內容。
+
+    這裡刻意用「先用佔位字串保護已經是新名稱的部分」的寫法，而不是單純字串取代，是因為
+    這次的新名稱（他人股票投資）剛好把舊名稱（股票投資）整個包在裡面當作子字串——如果每天
+    自動執行時單純做「看到股票投資!就換成他人股票投資!」，那已經改好的「他人股票投資!」
+    也會被誤判成需要再改一次，隔天就會疊字變成「他人他人股票投資!」。用佔位字串先把已經
+    正確的新名稱保護起來、取代完舊名稱之後再換回來，不管執行幾次結果都一樣（冪等）。"""
+    if old_name == new_name:
+        return
+    old_u, new_u = f'{old_name}!', f'{new_name}!'
+    old_q, new_q = f"'{old_name}'!", f"'{new_name}'!"
+    ph_u, ph_q = '\x00PH_UNQUOTED\x00', '\x00PH_QUOTED\x00'
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith('='):
+                    v = cell.value
+                    v2 = v.replace(new_q, ph_q).replace(new_u, ph_u)
+                    v2 = v2.replace(old_q, new_q).replace(old_u, new_u)
+                    v2 = v2.replace(ph_q, new_q).replace(ph_u, new_u)
+                    if v2 != v:
+                        cell.value = v2
+
+
+def rename_sheets(wb):
+    """依SHEET_RENAME_MAP把分頁改名，並同步修正其他分頁公式裡對舊名稱的跨分頁引用
+    （openpyxl改分頁title不會自動更新公式字串，需要自己處理，否則會變成#REF!錯誤）。
+    如果舊名字的分頁已經不存在了（代表已經改過名字，或本來就沒有這個分頁），改名這步就跳過；
+    但公式修正每次都會檢查一遍（找不到舊名稱就直接跳過），保證每天重複執行都安全、不會出錯。"""
+    for old_name, new_name in SHEET_RENAME_MAP.items():
+        if old_name in wb.sheetnames:
+            wb[old_name].title = new_name
+        _fix_cross_sheet_formula_refs(wb, old_name, new_name)
+
+
 # 2026-09-18新增：Norris要求調整分頁順序——「家妍投資的部份對於我總資產的統計較不重要，
 # 想要把這個欄位挪到最後面」，並依重要性/邏輯性/便利性微調其餘分頁順序。分類邏輯：
 #   1) 總覽/報告類（儀表板／資產負債表／淨值歷史／年度總結）放最前面
@@ -809,13 +856,15 @@ def ensure_billing_month_dropdown(wb):
 #   3) 日常收支/負債類（收支明細／信用卡年支出／貸款總覽）再次之
 #   4) 家庭固定支出（育兒費／請款單）——這兩個分頁本身有連動關係（請款單的月份下拉選單、
 #      MATCH公式都直接參照育兒費分頁），刻意排在一起、順序不拆開
-#   5) 股票投資（家妍個人部位，成本法記帳）——依Norris要求排到最後面
+#   5) 他人股票投資（家妍個人部位，成本法記帳）——依Norris要求排到最後面
+#      （2026-09-19：分頁改名前是「股票投資」，改名後這裡也要跟著改，否則reorder_sheets
+#      會找不到這個分頁名稱，變成被歸類到「其餘分頁」而排錯位置）
 TARGET_SHEET_ORDER = [
     '儀表板', '資產負債表', '淨值歷史', '年度總結',
     '股票部位', '基金配息紀錄',
     '收支明細', '信用卡年支出', '貸款總覽',
     '育兒費', '請款單',
-    '股票投資',
+    '他人股票投資',
 ]
 
 
@@ -973,6 +1022,7 @@ def main():
             restyle_stock_positions_sheet(wb2['股票部位'])
         autofit_other_sheets(wb2)
         ensure_billing_month_dropdown(wb2)
+        rename_sheets(wb2)  # 放在reorder_sheets之前，確保排序時用的是改名後的新分頁名稱
         reorder_sheets(wb2)
         bold_numeric_cells(wb2)  # 放在所有其他styling函式之後執行，確保粗體設定不會被前面的Font()指定覆蓋掉
         wb2.save(tmp_xlsx)
