@@ -21,3 +21,4 @@ result.txt
 # Python快取
 __pycache__/
 *.pyc
+/Claude outputs
